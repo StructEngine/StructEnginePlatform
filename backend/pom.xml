@@ -11,10 +11,10 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.realcraft</groupId>
-    <artifactId>realcraft-platform</artifactId>
+    <groupId>com.structengine</groupId>
+    <artifactId>structengine-platform</artifactId>
     <version>1.0.0</version>
-    <name>realcraft-platform</name>
+    <name>structengine-platform</name>
     <description>三视图转 Minecraft 方块的一体化 Web 服务（Java 后端）</description>
 
     <properties>

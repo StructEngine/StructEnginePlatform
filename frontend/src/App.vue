@@ -5,7 +5,7 @@ import GeneratePage from './views/GeneratePage.vue'
 <template>
   <div class="app-shell">
     <header class="app-header">
-      <h1 class="app-title">RealCraft 像素三视图转换器</h1>
+      <h1 class="app-title">StructEngine 像素三视图转换器</h1>
       <p class="app-subtitle">上传像素化三视图，生成 Minecraft 体素模型</p>
     </header>
     <main class="app-main">

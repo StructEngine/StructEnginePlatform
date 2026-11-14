@@ -1,4 +1,4 @@
-# realcraft-platform
+# structengine-platform
 
 像素三视图转 Minecraft 方块的极简一体化服务（Java 后端 + Vue 前端）。
 
@@ -15,18 +15,18 @@
 
 ## 环境变量
 
-服务所有配置均通过环境变量注入，命名遵循 `REALCRAFT_` 前缀 + UPPER_SNAKE_CASE。
+服务所有配置均通过环境变量注入，命名遵循 `STRUCTENGINE_` 前缀 + UPPER_SNAKE_CASE。
 
 | 变量 | 含义 | 默认值 | 必填 |
 |------|------|--------|------|
-| `REALCRAFT_SERVER_PORT` | 服务监听端口 | `8080` | 否 |
-| `REALCRAFT_AI_API_URL` | AI 推理服务地址（OpenAI 兼容，不含 `/chat/completions`，如 `https://api.example.com/v1`） | 无 | 是 |
-| `REALCRAFT_AI_API_KEY` | AI 认证密钥（仅服务端使用，不会出现在日志与响应中） | 无 | 是 |
-| `REALCRAFT_AI_MODEL` | AI 视觉模型名 | 无 | 是 |
-| `REALCRAFT_DATA_DIR` | 数据根目录（下含 `images`/`models` 子目录） | `./data` | 否 |
-| `REALCRAFT_MAX_IMAGE_MB` | 单图片大小上限（MB） | `10` | 否 |
+| `STRUCTENGINE_SERVER_PORT` | 服务监听端口 | `8080` | 否 |
+| `STRUCTENGINE_AI_API_URL` | AI 推理服务地址（OpenAI 兼容，不含 `/chat/completions`，如 `https://api.example.com/v1`） | 无 | 是 |
+| `STRUCTENGINE_AI_API_KEY` | AI 认证密钥（仅服务端使用，不会出现在日志与响应中） | 无 | 是 |
+| `STRUCTENGINE_AI_MODEL` | AI 视觉模型名 | 无 | 是 |
+| `STRUCTENGINE_DATA_DIR` | 数据根目录（下含 `images`/`models` 子目录） | `./data` | 否 |
+| `STRUCTENGINE_MAX_IMAGE_MB` | 单图片大小上限（MB） | `10` | 否 |
 
-> 三个必填项（`REALCRAFT_AI_API_URL` / `REALCRAFT_AI_API_KEY` / `REALCRAFT_AI_MODEL`）缺失或为空时，服务将拒绝启动并报错。
+> 三个必填项（`STRUCTENGINE_AI_API_URL` / `STRUCTENGINE_AI_API_KEY` / `STRUCTENGINE_AI_MODEL`）缺失或为空时，服务将拒绝启动并报错。
 >
 > `dist` 目录为**固定值 `./dist`**（对齐镜像 `/app/dist`），不通过环境变量配置。
 
@@ -34,9 +34,9 @@
 
 ```bash
 # 1. 临时设置（当前 shell）
-export REALCRAFT_AI_API_URL="https://api.example.com/v1"
-export REALCRAFT_AI_API_KEY="sk-xxx"
-export REALCRAFT_AI_MODEL="your-vision-model"
+export STRUCTENGINE_AI_API_URL="https://api.example.com/v1"
+export STRUCTENGINE_AI_API_KEY="sk-xxx"
+export STRUCTENGINE_AI_MODEL="your-vision-model"
 
 # 2. 使用 .env 文件 + docker-compose（见下文 Docker 部署）
 ```
@@ -47,9 +47,9 @@ export REALCRAFT_AI_MODEL="your-vision-model"
 # 后端（需 JDK 21 + Maven）
 cd backend
 mvn -B -DskipTests package
-REALCRAFT_AI_API_URL="https://api.example.com/v1" \
-REALCRAFT_AI_API_KEY="sk-xxx" \
-REALCRAFT_AI_MODEL="your-vision-model" \
+STRUCTENGINE_AI_API_URL="https://api.example.com/v1" \
+STRUCTENGINE_AI_API_KEY="sk-xxx" \
+STRUCTENGINE_AI_MODEL="your-vision-model" \
 java -jar target/app.jar
 
 # 前端（开发模式，Vite dev server，/api 代理到后端）
@@ -75,7 +75,7 @@ cd ..
 cp -r frontend/dist dist
 
 # 2. 构建镜像（多阶段，内部完成 Maven 编译）
-docker build -t realcraft-platform .
+docker build -t structengine-platform .
 ```
 
 ### 方式二：使用 CI 推送的镜像
@@ -90,16 +90,16 @@ docker pull ghcr.io/<owner>/<repo>:latest
 
 ```bash
 docker run -d \
-  --name realcraft \
+  --name structengine \
   -p 8080:8080 \
-  -e REALCRAFT_AI_API_URL="https://api.example.com/v1" \
-  -e REALCRAFT_AI_API_KEY="sk-xxx" \
-  -e REALCRAFT_AI_MODEL="your-vision-model" \
-  -e REALCRAFT_SERVER_PORT=8080 \
-  -e REALCRAFT_MAX_IMAGE_MB=10 \
-  -v realcraft-data:/app/data \
+  -e STRUCTENGINE_AI_API_URL="https://api.example.com/v1" \
+  -e STRUCTENGINE_AI_API_KEY="sk-xxx" \
+  -e STRUCTENGINE_AI_MODEL="your-vision-model" \
+  -e STRUCTENGINE_SERVER_PORT=8080 \
+  -e STRUCTENGINE_MAX_IMAGE_MB=10 \
+  -v structengine-data:/app/data \
   --restart unless-stopped \
-  realcraft-platform
+  structengine-platform
 ```
 
 参数说明：
@@ -107,31 +107,31 @@ docker run -d \
 | 参数 | 说明 |
 |------|------|
 | `-p 8080:8080` | 将宿主机 8080 端口映射到容器监听端口 |
-| `-e REALCRAFT_*` | 注入环境变量（必填项必须提供，否则容器启动失败） |
-| `-v realcraft-data:/app/data` | 挂载命名卷持久化图片与模型数据 |
+| `-e STRUCTENGINE_*` | 注入环境变量（必填项必须提供，否则容器启动失败） |
+| `-v structengine-data:/app/data` | 挂载命名卷持久化图片与模型数据 |
 | `--restart unless-stopped` | 容器异常退出或宿主机重启后自动恢复 |
 
 ### docker-compose 示例
 
 ```yaml
 services:
-  realcraft:
+  structengine:
     image: ghcr.io/<owner>/<repo>:latest
-    container_name: realcraft
+    container_name: structengine
     ports:
       - "8080:8080"
     environment:
-      REALCRAFT_AI_API_URL: "https://api.example.com/v1"
-      REALCRAFT_AI_API_KEY: "sk-xxx"
-      REALCRAFT_AI_MODEL: "your-vision-model"
-      REALCRAFT_SERVER_PORT: "8080"
-      REALCRAFT_MAX_IMAGE_MB: "10"
+      STRUCTENGINE_AI_API_URL: "https://api.example.com/v1"
+      STRUCTENGINE_AI_API_KEY: "sk-xxx"
+      STRUCTENGINE_AI_MODEL: "your-vision-model"
+      STRUCTENGINE_SERVER_PORT: "8080"
+      STRUCTENGINE_MAX_IMAGE_MB: "10"
     volumes:
-      - realcraft-data:/app/data
+      - structengine-data:/app/data
     restart: unless-stopped
 
 volumes:
-  realcraft-data:
+  structengine-data:
 ```
 
 启动与停止：
@@ -189,7 +189,7 @@ docker compose down      # 停止并移除容器（保留数据卷）
 
 ```bash
 cd backend
-mvn -B -Dtest=com.realcraft.platform.llm.** test
-mvn -B -Dtest=com.realcraft.platform.service.** test
-mvn -B -Dtest=com.realcraft.platform.domain.**,com.realcraft.platform.common.**,com.realcraft.platform.config.** test
+mvn -B -Dtest=com.structengine.platform.llm.** test
+mvn -B -Dtest=com.structengine.platform.service.** test
+mvn -B -Dtest=com.structengine.platform.domain.**,com.structengine.platform.common.**,com.structengine.platform.config.** test
 ```
