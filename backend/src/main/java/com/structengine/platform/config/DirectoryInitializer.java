@@ -22,7 +22,7 @@ public class DirectoryInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws IOException {
-        Files.createDirectories(Path.of(props.getDataDir(), "images"));
-        Files.createDirectories(Path.of(props.getDataDir(), "models"));
+        Files.createDirectories(props.dataPath().resolve("images"));
+        Files.createDirectories(props.dataPath().resolve("models"));
     }
 }

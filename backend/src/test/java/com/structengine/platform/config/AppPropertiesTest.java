@@ -3,6 +3,7 @@ package com.structengine.platform.config;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AppPropertiesTest {
 
@@ -12,6 +13,17 @@ class AppPropertiesTest {
         assertEquals("./data", props.getDataDir());
         assertEquals(10, props.getMaxImageMb());
         assertEquals(8080, props.getServerPort());
+        assertEquals(5, props.getGameRpcTimeoutSeconds());
+        assertEquals("", props.getGameToken());
+        assertEquals("", props.getPublicBaseUrl());
+    }
+
+    @Test
+    void dataPathIsAbsolute() {
+        AppProperties props = new AppProperties();
+        props.setDataDir("./data");
+        assertTrue(props.dataPath().isAbsolute());
+        assertTrue(props.dataPath().endsWith("data"));
     }
 
     @Test

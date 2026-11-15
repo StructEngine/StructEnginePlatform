@@ -2,6 +2,11 @@ server:
   port: ${STRUCTENGINE_SERVER_PORT:8080}
 
 spring:
+  # Tomcat 请求处理全部使用 JDK 21 虚拟线程：
+  # Controller 中 future.get(timeout) 的同步阻塞不会占用 OS 平台线程。
+  threads:
+    virtual:
+      enabled: true
   servlet:
     multipart:
       max-file-size: 10MB
@@ -14,3 +19,9 @@ structengine:
   ai-model: ${STRUCTENGINE_AI_MODEL:}
   data-dir: ${STRUCTENGINE_DATA_DIR:./data}
   max-image-mb: ${STRUCTENGINE_MAX_IMAGE_MB:10}
+  # 游戏服 WebSocket 鉴权令牌；为空时不校验（仅建议本地开发使用）。
+  game-token: ${STRUCTENGINE_GAME_TOKEN:}
+  # 等待插件 RESPONSE_Y 的超时时间（秒）。
+  game-rpc-timeout-seconds: ${STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS:5}
+  # 对外可访问的基础地址；为空时按请求 Host 自动推导。
+  public-base-url: ${STRUCTENGINE_PUBLIC_BASE_URL:}

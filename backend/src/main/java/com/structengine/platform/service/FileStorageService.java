@@ -23,12 +23,12 @@ public class FileStorageService {
     }
 
     public void saveImage(String taskId, int index, byte[] data) {
-        Path path = Path.of(props.getDataDir(), "images", taskId + "_" + index + ".jpg");
+        Path path = props.dataPath().resolve("images").resolve(taskId + "_" + index + ".jpg");
         write(path, data);
     }
 
     public void saveModel(String taskId, String content) {
-        Path path = Path.of(props.getDataDir(), "models", taskId + ".json");
+        Path path = props.dataPath().resolve("models").resolve(taskId + ".json");
         write(path, content.getBytes(StandardCharsets.UTF_8));
     }
 

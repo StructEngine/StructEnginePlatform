@@ -27,7 +27,7 @@ public class StreetTask {
         this.centerLon = centerLon;
         this.radius = radius;
         this.totalChunks = totalChunks;
-        this.cacheDir = Path.of(cacheDir, taskId);
+        this.cacheDir = Path.of(cacheDir).toAbsolutePath().normalize().resolve(taskId);
     }
 
     public String taskId() {

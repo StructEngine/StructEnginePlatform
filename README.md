@@ -8,8 +8,9 @@
 
 ## 技术栈
 
-- 后端：Java 21，Spring Boot 4（内嵌 Tomcat）
-- 前端：Vue 3 + Element Plus + Vite（构建产物 `dist` 由后端统一托管）
+- 后端：Java 21，Spring Boot 4（内嵌 Tomcat）+ Spring WebSocket
+- 并发：JDK 21 虚拟线程（`spring.threads.virtual.enabled=true`），WebSocket RPC 同步阻塞不占用 OS 线程
+- 前端：Vue 3 + Element Plus + Leaflet + Vite（构建产物 `dist` 由后端统一托管）
 - 存储：本地文件系统（`./data/images` 存原图、`./data/models` 存模型 JSON），无数据库
 - 托管：单进程统一托管 API 路由、模型静态分发与前端 `dist` 静态资源（SPA 回退），无 Nginx
 
@@ -25,6 +26,9 @@
 | `STRUCTENGINE_AI_MODEL` | AI 视觉模型名 | 无 | 是 |
 | `STRUCTENGINE_DATA_DIR` | 数据根目录（下含 `images`/`models` 子目录） | `./data` | 否 |
 | `STRUCTENGINE_MAX_IMAGE_MB` | 单图片大小上限（MB） | `10` | 否 |
+| `STRUCTENGINE_GAME_TOKEN` | 游戏服 WebSocket 握手令牌；为空时不校验（仅限本地开发） | 空 | 生产建议 |
+| `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件 `RESPONSE_Y` 的超时秒数 | `5` | 否 |
+| `STRUCTENGINE_PUBLIC_BASE_URL` | 模型文件对外基础地址，如 `https://build.example.com`；为空按请求 Host 推导 | 空 | 反向代理时建议 |
 
 > 三个必填项（`STRUCTENGINE_AI_API_URL` / `STRUCTENGINE_AI_API_KEY` / `STRUCTENGINE_AI_MODEL`）缺失或为空时，服务将拒绝启动并报错。
 >
@@ -190,6 +194,67 @@ filter: none !important;
 
 确保地图放大时方块边缘锋利、不会被浏览器双线性插值模糊。
 
+## 地图选点建造（WebSocket 调度）
+
+### 链路
+
+```
+Web 点击 (X,Z)
+   → POST /api/map/build
+   → Platform 生成 taskId，向插件发 QUERY_Y
+   → 插件主线程 getHighestBlockYAt(x,z)
+   → 插件回传 RESPONSE_Y(taskId,y)
+   → Platform 虚拟线程 future.get(5s) 被唤醒
+   → Mock/Spring AI 生成体素模型，落盘 data/models/{taskId}.json
+   → Platform 下发 BUILD(taskId, playerName, x,y,z, modelUrl)
+   → 插件异步下载 JSON，压入原有 BuildTaskQueue，按绝对坐标分批构建
+```
+
+### WebSocket 端点
+
+- 地址：`ws://<platform-host>:<port>/ws/game?serverId=<serverId>`
+- 鉴权：配置 `STRUCTENGINE_GAME_TOKEN` 后，插件必须携带请求头 `X-StructEngine-Token: <token>`（或 `Authorization: Bearer <token>`）。
+- 心跳：插件每 20 秒发送 `PING`，Platform 回 `PONG`。
+- 断线重连：插件按 1s → 30s 指数退避重连；Platform 会立即失败该服尚未完成的 `QUERY_Y` Future，避免请求线程空等。
+
+统一消息体（空字段不序列化）：
+
+```json
+{"action":"QUERY_Y","taskId":"uuid","playerName":"Steve","x":12,"z":-8}
+{"action":"RESPONSE_Y","taskId":"uuid","y":70}
+{"action":"BUILD","taskId":"uuid","playerName":"Steve","x":12,"y":70,"z":-8,"modelUrl":"http://platform/models/uuid.json"}
+{"action":"ERROR","taskId":"uuid","message":"主线程查询失败"}
+```
+
+### 构建接口
+
+`GET /api/map/servers`：
+
+```json
+{"code":200,"message":"success","data":[{"serverId":"survival"}]}
+```
+
+`POST /api/map/build`：
+
+```json
+{"serverId":"survival","x":12,"z":-8,"playerName":"Steve","prompt":"红石城堡"}
+```
+
+成功响应（`y` 为插件实时回传的地表高度）：
+
+```json
+{"code":200,"message":"success","data":{
+  "taskId":"uuid","serverId":"survival","playerName":"Steve",
+  "x":12,"y":70,"z":-8,"modelUrl":"http://platform/models/uuid.json"
+}}
+```
+
+> 当前模型生成由 `MockStructureGenerator` 提供确定性占位建筑；`StructureGenerator` 已抽象，
+> 后续接入 Spring AI 时新增实现并替换 Bean 即可，RPC/落盘/下发链路无需改动。
+>
+> 模型文件使用项目根目录解析后的绝对路径 `{data-dir}/models/{taskId}.json` 落盘，
+> 并由 `GET /models/{filename}` 对外分发；游戏服必须能访问 `modelUrl`。
+
 ## 接口说明
 
 ### 上传转换
@@ -220,6 +285,8 @@ filter: none !important;
 | 413 | 文件过大或数量超限 |
 | 422 | 数据解析失败 |
 | 502 | 上游推理失败 |
+| 503 | 游戏服务器未连接 |
+| 504 | 游戏服务器响应超时 |
 | 500 | 存储失败 |
 
 ## 测试
@@ -231,4 +298,8 @@ cd backend
 mvn -B -Dtest=com.structengine.platform.llm.** test
 mvn -B -Dtest=com.structengine.platform.service.** test
 mvn -B -Dtest=com.structengine.platform.domain.**,com.structengine.platform.common.**,com.structengine.platform.config.** test
+mvn -B -Dtest=com.structengine.platform.game.** test
 ```
+
+`GameWebSocketIntegrationTest` 会启动随机端口的完整 Spring 上下文，模拟插件完成
+`QUERY_Y → RESPONSE_Y → BUILD` 全链路，并校验模型静态 URL 与绝对路径落盘。

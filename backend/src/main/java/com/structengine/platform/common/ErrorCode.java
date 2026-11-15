@@ -1,7 +1,7 @@
 package com.structengine.platform.common;
 
 /**
- * 业务错误码六档定义，对齐 Go 版 httpx/errors.go。
+ * 业务错误码定义，对齐 Go 版 httpx/errors.go；新增 503/504 覆盖游戏服 RPC 场景。
  */
 public enum ErrorCode {
 
@@ -10,6 +10,8 @@ public enum ErrorCode {
     TOO_LARGE(413, "文件过大或数量超限"),
     UNPROCESSABLE(422, "数据解析失败"),
     UPSTREAM_ERROR(502, "上游推理失败"),
+    GAME_SERVER_UNAVAILABLE(503, "游戏服务器未连接"),
+    GAME_SERVER_TIMEOUT(504, "游戏服务器响应超时"),
     INTERNAL_ERROR(500, "存储失败");
 
     private final int code;

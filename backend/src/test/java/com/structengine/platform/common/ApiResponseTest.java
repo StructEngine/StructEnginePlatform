@@ -37,6 +37,8 @@ class ApiResponseTest {
         assertEquals(413, ErrorCode.TOO_LARGE.code());
         assertEquals(422, ErrorCode.UNPROCESSABLE.code());
         assertEquals(502, ErrorCode.UPSTREAM_ERROR.code());
+        assertEquals(503, ErrorCode.GAME_SERVER_UNAVAILABLE.code());
+        assertEquals(504, ErrorCode.GAME_SERVER_TIMEOUT.code());
         assertEquals(500, ErrorCode.INTERNAL_ERROR.code());
     }
 

@@ -25,7 +25,7 @@ public class ModelStoreService {
         if (!isSafeFilename(filename)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
-        Path path = Path.of(props.getDataDir(), "models", filename);
+        Path path = props.dataPath().resolve("models").resolve(filename);
         if (!Files.exists(path)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }

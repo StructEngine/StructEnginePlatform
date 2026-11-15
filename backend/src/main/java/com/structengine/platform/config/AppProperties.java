@@ -1,8 +1,12 @@
 package com.structengine.platform.config;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
+
+import java.nio.file.Path;
 
 /**
  * 强类型配置绑定：{@code structengine.*} 前缀，环境变量 {@code STRUCTENGINE_*} 通过 relaxed binding 注入。
@@ -25,6 +29,17 @@ public class AppProperties {
     private int maxImageMb = 10;
 
     private int serverPort = 8080;
+
+    /** 游戏服 WebSocket 鉴权令牌，空字符串表示不校验（仅限本地开发）。 */
+    private String gameToken = "";
+
+    /** 等待插件 RESPONSE_Y 的超时秒数。 */
+    @Min(1)
+    @Max(60)
+    private int gameRpcTimeoutSeconds = 5;
+
+    /** 对外基础地址（如 https://build.example.com）；为空则按请求 Host 推导。 */
+    private String publicBaseUrl = "";
 
     public String getAiApiUrl() {
         return aiApiUrl;
@@ -72,6 +87,37 @@ public class AppProperties {
 
     public void setServerPort(int serverPort) {
         this.serverPort = serverPort;
+    }
+
+    public String getGameToken() {
+        return gameToken;
+    }
+
+    public void setGameToken(String gameToken) {
+        this.gameToken = gameToken;
+    }
+
+    public int getGameRpcTimeoutSeconds() {
+        return gameRpcTimeoutSeconds;
+    }
+
+    public void setGameRpcTimeoutSeconds(int gameRpcTimeoutSeconds) {
+        this.gameRpcTimeoutSeconds = gameRpcTimeoutSeconds;
+    }
+
+    public String getPublicBaseUrl() {
+        return publicBaseUrl;
+    }
+
+    public void setPublicBaseUrl(String publicBaseUrl) {
+        this.publicBaseUrl = publicBaseUrl;
+    }
+
+    /**
+     * 数据根目录的绝对路径：所有文件 IO 均基于项目根目录解析，避免工作目录漂移。
+     */
+    public Path dataPath() {
+        return Path.of(dataDir).toAbsolutePath().normalize();
     }
 
     /**
