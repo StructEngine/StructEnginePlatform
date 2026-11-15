@@ -151,6 +151,45 @@ docker compose down      # 停止并移除容器（保留数据卷）
 
 请务必通过 `-v`（或 compose 的 `volumes`）将该目录挂载到宿主机或命名卷，否则容器重建后数据会丢失。
 
+## 地图选点（Squaremap）
+
+前端「地图选点建造」页面把 [Squaremap](https://github.com/jpenilla/squaremap) 瓦片嵌入 Leaflet，管理员点击地图即可拾取精确的 `(X, Z)`，随后由 Platform 通过 WebSocket 向游戏服查询地表高度 `Y`，调用 AI 生成模型并下发构建。
+
+### 前置条件
+
+1. 游戏服安装并启用 **Squaremap**，开放其 Web Server 端口（默认 `8123`，以实际配置为准）。
+2. 游戏服安装 **StructEngine** 插件（Fabric / NeoForge / Paper 任一），并配置 `STRUCTENGINE_WS_URL` 指向本 Platform 的 `ws://<platform-host>:<port>/ws/game`（阶段 3 提供）。
+3. 前端构建时注入以下变量（开发模式默认值见 `frontend/.env.development`，生产默认值见 `frontend/.env.production`）：
+
+| 变量 | 含义 | 示例 |
+|------|------|------|
+| `VITE_SQUAREMAP_URL` | Squaremap Web 根地址，或同源反向代理路径 | `/squaremap` 或 `http://map.example.com:8123` |
+| `VITE_SQUAREMAP_WORLD` | 要展示的 Squaremap 世界名 | `world` |
+| `VITE_SQUAREMAP_PROXY_TARGET` | 仅开发模式：Vite 把 `/squaremap` 反代到该地址 | `http://localhost:8123` |
+
+> 生产环境需由 Nginx / Caddy 把 `/squaremap` 反向代理到 Squaremap Web Server；若直接把 `VITE_SQUAREMAP_URL` 配成完整 URL，则需确认 Squaremap 允许跨域访问瓦片与 `settings.json`。
+
+### 使用流程
+
+1. 打开页面右上角「地图选点建造」。
+2. 点击地图选点，坐标按 `Math.floor` 向下取整，保证负坐标也落在正确方块内。
+3. 填写玩家名与建筑提示词，选择已连接的游戏服务器。
+4. 点击「确定构建」，页面进入 Loading，Platform 等待游戏服回传 `Y` 后生成模型并下发 `BUILD`。
+5. 成功后展示完整坐标 `X / Y / Z` 与模型 URL。
+
+### 像素化渲染
+
+地图容器的 `.leaflet-tile-pane img` 已强制应用：
+
+```css
+image-rendering: pixelated;
+image-rendering: crisp-edges;
+-ms-interpolation-mode: nearest-neighbor;
+filter: none !important;
+```
+
+确保地图放大时方块边缘锋利、不会被浏览器双线性插值模糊。
+
 ## 接口说明
 
 ### 上传转换
