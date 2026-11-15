@@ -316,9 +316,9 @@ python3 scripts/verify_remote_build.py \
 3. 下载模型 JSON；
 4. 通过 RCON 对模型中的每个方块执行：
    ```mcfunction
-   execute unless block <x+dx> <y+dy> <z+dz> <block_id> run say SE_VERIFY_MISMATCH
+   execute if block <x+dx> <y+dy> <z+dz> <block_id>
    ```
-   有且仅有不匹配时才会输出标记，脚本据此统计失败坐标；
+   根据服务端返回的 `Test passed` / `Test failed` 统计失败坐标；
 5. 全部匹配时输出 `验收通过: 核对 N 个方块，全部与模型一致`，任一不匹配则退出码为 `1`。
 
 可选参数：
@@ -328,6 +328,8 @@ python3 scripts/verify_remote_build.py \
 | `--expected-y` | 断言插件回传的 Y（超平坦测试世界可写死） |
 | `--max-checks N` | 只核对前 N 个方块，适合超大模型快速抽检 |
 | `--settle-seconds N` | BUILD 后等待插件下载/分批放置的秒数，默认 3 |
+| `--success-text` | RCON 方块命中时的返回文本，默认 `Test passed`；非英文服务端按实际调整 |
+| `--failure-text` | RCON 方块未命中时的返回文本，默认 `Test failed` |
 | `--skip-rcon` | 只触发构建并检查模型文件，不连接 RCON |
 
 > 没有 RCON 时，也可以用 `--skip-rcon` 验证 Platform 链路，再结合游戏内截图/日志人工确认方块；但逐方块 RCON 核对是最直接、可重复的验收方式。

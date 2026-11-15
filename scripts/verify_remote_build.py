@@ -30,9 +30,8 @@ import time
 import urllib.error
 import urllib.request
 
-MISMATCH_MARKER = "SE_VERIFY_MISMATCH"
-READY_MARKER = "SE_VERIFY_READY"
-PROBE_MARKER = "SE_VERIFY_PROBE"
+DEFAULT_SUCCESS_TEXT = "Test passed"
+DEFAULT_FAILURE_TEXT = "Test failed"
 
 
 class VerifyError(RuntimeError):
@@ -163,27 +162,14 @@ def choose_server(data: dict, requested: str | None) -> str:
 
 
 def verify_blocks(rcon: RconClient, blocks: list[tuple[str, int, int, int]], origin: tuple[int, int, int],
-                  max_checks: int | None) -> tuple[int, list[str]]:
+                  max_checks: int | None, success_text: str, failure_text: str) -> tuple[int, list[str]]:
     x0, y0, z0 = origin
     checked = 0
     failures: list[str] = []
 
-    # 预检 RCON 命令通道与 execute unless 语法。
-    if READY_MARKER not in rcon.command(f"say {READY_MARKER}"):
-        raise VerifyError("RCON 命令通道异常：say 预检未返回标记")
-
-    max_dy = max(dy for _, _, dy, _ in blocks)
-    probe_y = min(319, y0 + max_dy + 20)
-    probe = rcon.command(f"execute unless block {x0} {probe_y} {z0} minecraft:bedrock run say {PROBE_MARKER}")
-    if PROBE_MARKER not in probe:
-        # 探测点恰好是基岩的概率极低；换一个高度再试，仍失败则视为 RCON/命令异常。
-        probe_y = min(319, probe_y + 10)
-        probe = rcon.command(f"execute unless block {x0} {probe_y} {z0} minecraft:bedrock run say {PROBE_MARKER}")
-        if PROBE_MARKER not in probe:
-            raise VerifyError(
-                "RCON execute unless 预检失败；请确认服务端版本支持 execute if/unless block，"
-                f"原始响应: {probe!r}"
-            )
+    # 预检 RCON 命令通道；list 是各服务端都支持的无副作用命令。
+    if not rcon.command("list"):
+        raise VerifyError("RCON 命令通道异常：list 未返回任何内容")
 
     for index, (block_id, dx, dy, dz) in enumerate(blocks):
         if max_checks is not None and index >= max_checks:
@@ -191,12 +177,17 @@ def verify_blocks(rcon: RconClient, blocks: list[tuple[str, int, int, int]], ori
         x = x0 + dx
         y = y0 + dy
         z = z0 + dz
-        response = rcon.command(
-            f"execute unless block {x} {y} {z} {block_id} run say {MISMATCH_MARKER}"
-        )
+        response = rcon.command(f"execute if block {x} {y} {z} {block_id}")
         checked += 1
-        if MISMATCH_MARKER in response:
+        if success_text in response:
+            pass
+        elif failure_text in response:
             failures.append(f"({x},{y},{z}) 期望 {block_id}；RCON: {response}")
+        else:
+            raise VerifyError(
+                f"无法识别 RCON 响应（可能是服务端语言不同）：{response!r}；"
+                f"请用 --success-text/--failure-text 指定实际文本"
+            )
         if checked % 50 == 0:
             print(f"  已核对 {checked}/{min(len(blocks), max_checks or len(blocks))} 个方块...")
     return checked, failures
@@ -221,6 +212,10 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30.0, help="等待构建接口的超时秒数")
     parser.add_argument("--settle-seconds", type=float, default=3.0,
                         help="收到 BUILD 后等待插件下载并分批放置的秒数")
+    parser.add_argument("--success-text", default=DEFAULT_SUCCESS_TEXT,
+                        help="execute if block 命中时 RCON 返回文本（默认 Test passed）")
+    parser.add_argument("--failure-text", default=DEFAULT_FAILURE_TEXT,
+                        help="execute if block 未命中时 RCON 返回文本（默认 Test failed）")
     args = parser.parse_args()
 
     platform = args.platform.rstrip("/")
@@ -272,7 +267,8 @@ def main() -> int:
     print("[4/4] 通过 RCON 逐方块核对世界...")
     rcon = RconClient(args.rcon_host, args.rcon_port, args.rcon_password)
     try:
-        checked, failures = verify_blocks(rcon, blocks, (x, y, z), args.max_checks)
+        checked, failures = verify_blocks(rcon, blocks, (x, y, z), args.max_checks,
+                                           args.success_text, args.failure_text)
     finally:
         rcon.close()
 
