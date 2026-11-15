@@ -257,6 +257,81 @@ Web 点击 (X,Z)
 > 模型文件使用项目根目录解析后的绝对路径 `{data-dir}/models/{taskId}.json` 落盘，
 > 并由 `GET /models/{filename}` 对外分发；游戏服必须能访问 `modelUrl`。
 
+## 真机验收（可选）
+
+仓库提供 `scripts/verify_remote_build.py`，用真实 Minecraft 服务端的 RCON 逐方块核对构建结果，不依赖插件自报成功。
+
+### 服务端准备（Paper 示例）
+
+`server.properties`：
+
+```properties
+enable-rcon=true
+rcon.port=25575
+rcon.password=change-me
+broadcast-rcon-to-ops=false
+```
+
+建议使用超平坦测试世界或远离主城的测试坐标，并关闭出生点保护：
+
+```properties
+level-type=minecraft\:flat
+spawn-protection=0
+```
+
+启动游戏服前设置插件变量：
+
+```bash
+export STRUCTENGINE_WS_URL=ws://127.0.0.1:8080/ws/game
+export STRUCTENGINE_SERVER_ID=local-test
+export STRUCTENGINE_WS_TOKEN=change-me
+```
+
+Platform 侧设置相同的令牌，并确保游戏服能访问 `modelUrl`：
+
+```bash
+export STRUCTENGINE_GAME_TOKEN=change-me
+export STRUCTENGINE_PUBLIC_BASE_URL=http://127.0.0.1:8080
+```
+
+### 执行验收
+
+```bash
+cd StructEnginePlatform
+python3 scripts/verify_remote_build.py \
+  --platform http://127.0.0.1:8080 \
+  --server-id local-test \
+  --x 1000 --z 1000 \
+  --player Steve \
+  --prompt "验收小屋" \
+  --rcon-host 127.0.0.1 \
+  --rcon-port 25575 \
+  --rcon-password change-me
+```
+
+脚本会：
+
+1. 检查 `/api/map/servers` 中目标游戏服是否在线；
+2. 调用 `/api/map/build`，断言返回的完整 `(x,y,z)` 与模型 URL；
+3. 下载模型 JSON；
+4. 通过 RCON 对模型中的每个方块执行：
+   ```mcfunction
+   execute unless block <x+dx> <y+dy> <z+dz> <block_id> run say SE_VERIFY_MISMATCH
+   ```
+   有且仅有不匹配时才会输出标记，脚本据此统计失败坐标；
+5. 全部匹配时输出 `验收通过: 核对 N 个方块，全部与模型一致`，任一不匹配则退出码为 `1`。
+
+可选参数：
+
+| 参数 | 说明 |
+|------|------|
+| `--expected-y` | 断言插件回传的 Y（超平坦测试世界可写死） |
+| `--max-checks N` | 只核对前 N 个方块，适合超大模型快速抽检 |
+| `--settle-seconds N` | BUILD 后等待插件下载/分批放置的秒数，默认 3 |
+| `--skip-rcon` | 只触发构建并检查模型文件，不连接 RCON |
+
+> 没有 RCON 时，也可以用 `--skip-rcon` 验证 Platform 链路，再结合游戏内截图/日志人工确认方块；但逐方块 RCON 核对是最直接、可重复的验收方式。
+
 ## 接口说明
 
 ### 上传转换
