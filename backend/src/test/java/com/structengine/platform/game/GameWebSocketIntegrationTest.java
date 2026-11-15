@@ -40,7 +40,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "structengine.ai-api-url=http://localhost:1",
         "structengine.ai-api-key=test",
         "structengine.ai-model=test-model",
-        "structengine.google-street.api-key=test",
         "structengine.game-token=secret-token"
 })
 class GameWebSocketIntegrationTest {

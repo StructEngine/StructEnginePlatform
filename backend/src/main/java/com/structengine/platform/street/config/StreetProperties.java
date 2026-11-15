@@ -14,7 +14,10 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 public class StreetProperties {
 
-    @NotBlank
+    /**
+     * Google 3D Tiles API Key。街景为可选模块，未配置时 Platform 仍应正常启动；
+     * 仅在真正调用街景接口时返回“未配置”错误。
+     */
     private String apiKey = "";
 
     @NotBlank

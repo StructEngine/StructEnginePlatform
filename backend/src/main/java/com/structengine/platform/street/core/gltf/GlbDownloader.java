@@ -35,6 +35,10 @@ public class GlbDownloader {
      * 下载覆盖目标区域的 GLB 瓦片字节流，失败抛 {@link BusinessException}(UPSTREAM_ERROR)。
      */
     public byte[] download(StreetTask task) {
+        if (props.getApiKey() == null || props.getApiKey().isBlank()) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR,
+                    "街景功能未配置 STRUCTENGINE_GOOGLE_STREET_API_KEY");
+        }
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(props.getApiUrl()))
