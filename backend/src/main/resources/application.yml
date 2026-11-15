@@ -17,6 +17,8 @@ structengine:
   ai-api-url: ${STRUCTENGINE_AI_API_URL:}
   ai-api-key: ${STRUCTENGINE_AI_API_KEY:}
   ai-model: ${STRUCTENGINE_AI_MODEL:}
+  # 项目根目录；相对 data-dir 与 dist 均以此为基准。留空则使用 JVM user.dir。
+  project-root: ${STRUCTENGINE_PROJECT_ROOT:}
   data-dir: ${STRUCTENGINE_DATA_DIR:./data}
   max-image-mb: ${STRUCTENGINE_MAX_IMAGE_MB:10}
   # 游戏服 WebSocket 鉴权令牌；为空时不校验（仅建议本地开发使用）。

@@ -12,12 +12,17 @@ import java.nio.file.Path;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    public static final Path DIST_DIR = Path.of("./dist").toAbsolutePath().normalize();
+    private final AppProperties props;
+
+    public WebConfig(AppProperties props) {
+        this.props = props;
+    }
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        Path distDir = props.projectPath().resolve("dist");
         registry.addResourceHandler("/**")
-                .addResourceLocations(DIST_DIR.toUri().toString().replaceAll("/?$", "/"))
+                .addResourceLocations(distDir.toUri().toString().replaceAll("/?$", "/"))
                 .resourceChain(true)
                 .addResolver(new SpaResourceResolver());
     }

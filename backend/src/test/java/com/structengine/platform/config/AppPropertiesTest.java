@@ -27,6 +27,22 @@ class AppPropertiesTest {
     }
 
     @Test
+    void relativeDataDirResolvesAgainstConfiguredProjectRoot() {
+        AppProperties props = new AppProperties();
+        props.setProjectRoot("/srv/structengine");
+        props.setDataDir("./data");
+        assertEquals("/srv/structengine/data", props.dataPath().toString());
+    }
+
+    @Test
+    void absoluteDataDirIgnoresProjectRoot() {
+        AppProperties props = new AppProperties();
+        props.setProjectRoot("/srv/structengine");
+        props.setDataDir("/var/lib/structengine");
+        assertEquals("/var/lib/structengine", props.dataPath().toString());
+    }
+
+    @Test
     void maxImageBytesConverts() {
         AppProperties props = new AppProperties();
         props.setMaxImageMb(3);

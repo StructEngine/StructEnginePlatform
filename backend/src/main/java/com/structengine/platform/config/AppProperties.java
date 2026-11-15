@@ -24,6 +24,9 @@ public class AppProperties {
     @NotBlank
     private String aiModel;
 
+    /** 项目根目录；为空时回退到 JVM 的 user.dir。 */
+    private String projectRoot = "";
+
     private String dataDir = "./data";
 
     private int maxImageMb = 10;
@@ -63,6 +66,14 @@ public class AppProperties {
 
     public void setAiModel(String aiModel) {
         this.aiModel = aiModel;
+    }
+
+    public String getProjectRoot() {
+        return projectRoot;
+    }
+
+    public void setProjectRoot(String projectRoot) {
+        this.projectRoot = projectRoot;
     }
 
     public String getDataDir() {
@@ -114,10 +125,21 @@ public class AppProperties {
     }
 
     /**
-     * 数据根目录的绝对路径：所有文件 IO 均基于项目根目录解析，避免工作目录漂移。
+     * 项目根目录的绝对路径；未显式配置时使用 JVM 工作目录。
+     */
+    public Path projectPath() {
+        String root = (projectRoot == null || projectRoot.isBlank())
+                ? System.getProperty("user.dir")
+                : projectRoot;
+        return Path.of(root).toAbsolutePath().normalize();
+    }
+
+    /**
+     * 数据根目录的绝对路径：相对路径一律基于项目根目录解析，避免启动目录漂移。
      */
     public Path dataPath() {
-        return Path.of(dataDir).toAbsolutePath().normalize();
+        Path path = Path.of(dataDir);
+        return path.isAbsolute() ? path.normalize() : projectPath().resolve(path).normalize();
     }
 
     /**

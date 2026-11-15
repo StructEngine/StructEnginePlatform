@@ -24,7 +24,8 @@
 | `STRUCTENGINE_AI_API_URL` | AI 推理服务地址（OpenAI 兼容，不含 `/chat/completions`，如 `https://api.example.com/v1`） | 无 | 是 |
 | `STRUCTENGINE_AI_API_KEY` | AI 认证密钥（仅服务端使用，不会出现在日志与响应中） | 无 | 是 |
 | `STRUCTENGINE_AI_MODEL` | AI 视觉模型名 | 无 | 是 |
-| `STRUCTENGINE_DATA_DIR` | 数据根目录（下含 `images`/`models` 子目录） | `./data` | 否 |
+| `STRUCTENGINE_PROJECT_ROOT` | 项目根目录；相对 `data-dir` 与 `dist` 以此为基准 | JVM `user.dir` | 否 |
+| `STRUCTENGINE_DATA_DIR` | 数据根目录（下含 `images`/`models` 子目录），相对路径基于项目根目录 | `./data` | 否 |
 | `STRUCTENGINE_MAX_IMAGE_MB` | 单图片大小上限（MB） | `10` | 否 |
 | `STRUCTENGINE_GAME_TOKEN` | 游戏服 WebSocket 握手令牌；为空时不校验（仅限本地开发） | 空 | 生产建议 |
 | `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件 `RESPONSE_Y` 的超时秒数 | `5` | 否 |
