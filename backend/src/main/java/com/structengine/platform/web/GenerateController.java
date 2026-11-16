@@ -25,12 +25,13 @@ public class GenerateController {
     @PostMapping("/generate")
     public ApiResponse<GenerateData> generate(
             @RequestParam(value = "images", required = false) MultipartFile[] images,
+            @RequestParam(value = "description", required = false) String description,
             HttpServletRequest request) {
         String host = request.getHeader("Host");
         if (host == null || host.isBlank()) {
             host = request.getServerName() + ":" + request.getServerPort();
         }
-        String jsonUrl = generateService.generate(images, host);
+        String jsonUrl = generateService.generate(images, description, host);
         return ApiResponse.ok(new GenerateData(jsonUrl));
     }
 }

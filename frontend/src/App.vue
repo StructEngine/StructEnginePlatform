@@ -11,8 +11,8 @@ const titles = {
     subtitle: 'BlueMap 选点 · 玩家选择 · AI 模型生成 · 部署与回滚',
   },
   studio: {
-    title: 'StructEngine 像素三视图转换器',
-    subtitle: '上传像素化三视图，生成 Minecraft 体素模型',
+    title: 'StructEngine 参考图生成器',
+    subtitle: '上传 1~3 张参考图，三视图仅作建议，多模态 AI 推断生成 Minecraft 体素模型',
   },
 }
 

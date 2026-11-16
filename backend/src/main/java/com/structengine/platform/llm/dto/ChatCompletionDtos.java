@@ -16,6 +16,9 @@ public final class ChatCompletionDtos {
     public record Message(String role, Object content) {
     }
 
+    public record TextContent(String type, String text) {
+    }
+
     public record ImageContent(String type, ImageUrl imageUrl) {
     }
 

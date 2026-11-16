@@ -2,8 +2,11 @@ import { ref } from 'vue'
 import { generateModel, fetchModel, GenerateError, NETWORK_ERROR } from '../api/generate'
 import { parseVoxelData } from '../three/parseVoxelData'
 
+const MAX_IMAGES = 3
+
 export function useGenerate() {
   const fileList = ref([])
+  const description = ref('')
   const loading = ref(false)
   const result = ref(null)
   const error = ref('')
@@ -16,7 +19,11 @@ export function useGenerate() {
       return
     }
     if (fileList.value.length === 0) {
-      error.value = '请先选择图片'
+      error.value = '请至少选择 1 张参考图'
+      return
+    }
+    if (fileList.value.length > MAX_IMAGES) {
+      error.value = `最多上传 ${MAX_IMAGES} 张参考图`
       return
     }
 
@@ -26,7 +33,7 @@ export function useGenerate() {
     previewError.value = ''
     loading.value = true
     try {
-      const jsonUrl = await generateModel(fileList.value)
+      const jsonUrl = await generateModel(fileList.value, description.value)
       result.value = jsonUrl
 
       previewLoading.value = true
@@ -49,6 +56,7 @@ export function useGenerate() {
 
   function reset() {
     fileList.value = []
+    description.value = ''
     result.value = null
     error.value = ''
     voxels.value = null
@@ -58,6 +66,7 @@ export function useGenerate() {
 
   return {
     fileList,
+    description,
     loading,
     result,
     error,

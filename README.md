@@ -1,6 +1,6 @@
 # StructEnginePlatform
 
-StructEngine 的云端控制面：管理多个 Minecraft 游戏服、BlueMap 地图选点、玩家选择、Spring AI 对话生成体素模型，以及模型部署/回滚/恢复。
+StructEngine 的云端控制面：管理多个 Minecraft 游戏服、BlueMap 地图选点、玩家选择、Spring AI 对话生成体素模型、参考图生成体素模型，以及模型部署/回滚/恢复。
 
 ## 架构
 
@@ -162,6 +162,21 @@ cp -r frontend/dist dist
 8. 在任务状态中查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`。
 9. 在构建历史中执行回滚/恢复。
 
+### 参考图建模（三视图仅为建议）
+
+在顶部导航切换到“三视图建模”页：
+
+- 上传 **1~3 张参考图**即可。正视图、侧视图、俯视图只是推荐输入，不要求齐全。
+- 参考图不足三视图时也可以直接提交：后端会把图片与可选补充说明发送给多模态模型，由模型推断缺失的进深、侧面和屋顶，补全为完整建筑。
+- 可填写建筑类型、层数、屋顶、材质、颜色、门窗位置等补充说明，帮助模型更准确地补全。
+- 生成成功后返回体素模型 JSON 地址，可按 `/buildmodel <url>` 在游戏内构建。
+
+```bash
+curl -b cookies.txt -F "images=@front.png" -F "images=@side.png" \
+  -F "description=两层石砖小屋，红色木屋顶，正面开门" \
+  http://192.168.1.201:8080/api/generate
+```
+
 ## HTTP API
 
 | 方法 | 路径 | 说明 |
@@ -176,6 +191,7 @@ cp -r frontend/dist dist
 | POST | `/api/ai/chat` | AI 对话 |
 | GET | `/api/ai/chat/{sessionId}` | 对话历史 |
 | POST | `/api/models/generate` | 对话描述生成模型 |
+| POST | `/api/generate` | 参考图（1~3 张）+ 可选 `description` 生成体素模型 |
 | POST | `/api/tasks/deploy` | 部署模型 |
 | GET | `/api/tasks/{taskId}` | 任务状态 |
 | GET | `/api/tasks?serverId=&playerUuid=` | 玩家任务列表 |

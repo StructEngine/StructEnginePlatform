@@ -4,7 +4,7 @@ import GuideSection from '../components/GuideSection.vue'
 import UploadPanel from '../components/UploadPanel.vue'
 import ResultPanel from '../components/ResultPanel.vue'
 
-const { fileList, loading, result, error, voxels, submit } = useGenerate()
+const { fileList, description, loading, result, error, voxels, submit } = useGenerate()
 
 function handleFilesChange(files) {
   fileList.value = files
@@ -14,11 +14,12 @@ function handleFilesChange(files) {
 <template>
   <div
     v-loading="loading"
-    element-loading-text="正在生成方块模型..."
+    element-loading-text="正在调用多模态模型生成方块模型..."
     class="generate-page"
   >
     <GuideSection />
     <UploadPanel
+      v-model:description="description"
       :loading="loading"
       @change-files="handleFilesChange"
       @submit="submit"

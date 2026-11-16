@@ -16,10 +16,14 @@ export class GenerateError extends Error {
   }
 }
 
-export async function generateModel(files) {
+export async function generateModel(files, description = '') {
   const formData = new FormData()
   for (const file of files) {
     formData.append('images', file)
+  }
+  const extraDescription = typeof description === 'string' ? description.trim() : ''
+  if (extraDescription) {
+    formData.append('description', extraDescription)
   }
 
   let response
@@ -32,23 +36,36 @@ export async function generateModel(files) {
     throw new GenerateError(NETWORK_ERROR)
   }
 
-  if (!response.ok) {
-    throw new GenerateError(NETWORK_ERROR)
-  }
-
-  let payload
+  let payload = null
   try {
     payload = await response.json()
   } catch (e) {
+    // 非 JSON 错误响应（如网关超时页）走通用错误处理
+  }
+
+  if (!response.ok) {
+    const code = (payload && payload.code) || response.status
+    const message = (payload && payload.message)
+      || FALLBACK_MESSAGES[code]
+      || FALLBACK_MESSAGES[response.status]
+      || NETWORK_ERROR
+    throw new GenerateError(message, code)
+  }
+
+  if (!payload) {
     throw new GenerateError(NETWORK_ERROR)
   }
 
-  if (payload && payload.code === 200) {
-    return payload.data && payload.data.json_url
+  if (payload.code === 200) {
+    const jsonUrl = payload.data && payload.data.json_url
+    if (!jsonUrl) {
+      throw new GenerateError(NETWORK_ERROR)
+    }
+    return jsonUrl
   }
 
-  const code = payload ? payload.code : 0
-  const message = (payload && payload.message) || FALLBACK_MESSAGES[code] || NETWORK_ERROR
+  const code = payload.code || 0
+  const message = payload.message || FALLBACK_MESSAGES[code] || NETWORK_ERROR
   throw new GenerateError(message, code)
 }
 

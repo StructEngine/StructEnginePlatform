@@ -31,15 +31,25 @@ const examples = [
     ],
   },
 ]
+
+const tips = [
+  '三视图齐全 → 精确重建',
+  '1~2 张 → AI 推断补全',
+  '可附文字补充说明',
+]
 </script>
 
 <template>
   <section class="guide">
     <div class="guide-card">
       <p class="guide-text">
-        请上传利用 AI 或工具生成的<strong>像素化三视图</strong>
-        （正视图、侧视图、俯视图）
+        上传 <strong>1~3 张参考图</strong>，后端会调用<strong>多模态模型</strong>生成 Minecraft 体素建筑。
+        正视图、侧视图、俯视图只是推荐，<strong>不足三视图也可以直接提交</strong>，
+        模型会结合可见轮廓、比例、颜色与补充说明推断完整结构。
       </p>
+      <div class="guide-tips">
+        <span v-for="tip in tips" :key="tip" class="guide-tip">{{ tip }}</span>
+      </div>
       <div class="guide-examples">
         <div v-for="ex in examples" :key="ex.title" class="example-item">
           <div class="example-canvas">
@@ -84,6 +94,22 @@ const examples = [
 .guide-text strong {
   color: var(--el-color-primary);
   font-weight: 700;
+}
+
+.guide-tips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.guide-tip {
+  padding: 4px 10px;
+  border: 1px solid var(--rc-panel-border);
+  border-radius: 999px;
+  background: rgba(124, 189, 75, 0.08);
+  color: var(--rc-text-dim);
+  font-size: 12px;
 }
 
 .guide-examples {

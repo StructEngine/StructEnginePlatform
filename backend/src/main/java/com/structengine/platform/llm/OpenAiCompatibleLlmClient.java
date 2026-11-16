@@ -8,6 +8,7 @@ import com.structengine.platform.llm.dto.ChatCompletionDtos.ChatCompletionRespon
 import com.structengine.platform.llm.dto.ChatCompletionDtos.ImageContent;
 import com.structengine.platform.llm.dto.ChatCompletionDtos.ImageUrl;
 import com.structengine.platform.llm.dto.ChatCompletionDtos.Message;
+import com.structengine.platform.llm.dto.ChatCompletionDtos.TextContent;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -16,7 +17,7 @@ import java.util.Base64;
 import java.util.List;
 
 /**
- * 基于 RestClient 的 OpenAI 兼容 Vision 调用实现。
+ * 基于 RestClient 的 OpenAI 兼容多模态调用实现。
  */
 @Component
 public class OpenAiCompatibleLlmClient implements LlmClient {
@@ -30,11 +31,17 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     @Override
-    public String generate(byte[][] images) {
-        List<ImageContent> parts = new ArrayList<>(images.length);
+    public String generate(byte[][] images, String instruction) {
+        List<Object> parts = new ArrayList<>(images.length + 1);
+        String text = instruction == null ? "" : instruction.trim();
+        if (!text.isEmpty()) {
+            parts.add(new TextContent("text", text));
+        }
         for (byte[] image : images) {
+            String mimeType = ImageMimeType.detect(image);
             String encoded = Base64.getEncoder().encodeToString(image);
-            parts.add(new ImageContent("image_url", new ImageUrl("data:image/jpeg;base64," + encoded)));
+            parts.add(new ImageContent("image_url",
+                    new ImageUrl("data:" + (mimeType == null ? "image/jpeg" : mimeType) + ";base64," + encoded)));
         }
 
         ChatCompletionRequest request = new ChatCompletionRequest(

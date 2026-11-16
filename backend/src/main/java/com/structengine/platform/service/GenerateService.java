@@ -6,8 +6,10 @@ import com.structengine.platform.config.AppProperties;
 import com.structengine.platform.domain.ModelData;
 import com.structengine.platform.domain.Task;
 import com.structengine.platform.domain.VoxelBlock;
+import com.structengine.platform.llm.ImageMimeType;
 import com.structengine.platform.llm.JsonSanitizer;
 import com.structengine.platform.llm.LlmClient;
+import com.structengine.platform.llm.PromptProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -16,10 +18,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 上传转换主流程编排：校验 → 落盘原图 → AI 推理 → 清洗 → 校验 → 落盘模型 → 返回 json_url。
+ * 参考图转换主流程编排：校验 → 落盘原图 → 多模态推理 → 清洗 → 校验 → 落盘模型 → 返回 json_url。
+ *
+ * <p>三视图只是推荐输入，1~3 张参考图均可提交；不足三视图时由多模态模型推断补全。</p>
  */
 @Service
 public class GenerateService {
+
+    public static final int MAX_IMAGES = 3;
+    private static final int MAX_DESCRIPTION_LENGTH = 1000;
 
     private final AppProperties props;
     private final LlmClient llmClient;
@@ -34,13 +41,10 @@ public class GenerateService {
         this.fileStorage = fileStorage;
     }
 
-    public String generate(MultipartFile[] images, String host) {
+    public String generate(MultipartFile[] images, String description, String host) {
         Task task = new Task();
-
-        if (images == null || (images.length != 1 && images.length != 3)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST,
-                    "输入形态不合法：请上传 1 张拼合三视图或 3 张分立三视图");
-        }
+        validateImageCount(images);
+        String extraDescription = normalizeDescription(description);
 
         List<byte[]> imageBytes = new ArrayList<>(images.length);
         for (MultipartFile image : images) {
@@ -50,7 +54,7 @@ public class GenerateService {
             } catch (IOException e) {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "读取上传文件失败");
             }
-            if (detectImageType(data) == null) {
+            if (ImageMimeType.detect(data) == null) {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "文件类型不合法：仅支持图片");
             }
             if (image.getSize() > props.maxImageBytes()) {
@@ -63,9 +67,15 @@ public class GenerateService {
             fileStorage.saveImage(task.id(), i, imageBytes.get(i));
         }
 
-        String raw = llmClient.generate(imageBytes.toArray(new byte[0][]));
+        String instruction = PromptProvider.userInstruction(
+                imageBytes.size(), extraDescription, props.getMaxModelBlocks());
+        String raw = llmClient.generate(imageBytes.toArray(new byte[0][]), instruction);
 
         List<VoxelBlock> blocks = sanitizer.sanitize(raw);
+        if (blocks.size() > props.getMaxModelBlocks()) {
+            throw new BusinessException(ErrorCode.UNPROCESSABLE,
+                    "模型方块数超过限制 " + props.getMaxModelBlocks());
+        }
 
         ModelData model = new ModelData(blocks);
         try {
@@ -80,27 +90,23 @@ public class GenerateService {
         return "http://" + host + "/models/" + task.modelPath();
     }
 
-    static String detectImageType(byte[] data) {
-        if (data == null || data.length < 4) {
-            return null;
+    private void validateImageCount(MultipartFile[] images) {
+        if (images == null || images.length == 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "请至少上传 1 张参考图（三视图只是建议，1~3 张均可）");
         }
-        if ((data[0] & 0xFF) == 0xFF && (data[1] & 0xFF) == 0xD8 && (data[2] & 0xFF) == 0xFF) {
-            return "image/jpeg";
+        if (images.length > MAX_IMAGES) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "最多支持 " + MAX_IMAGES + " 张参考图");
         }
-        if (data[0] == (byte) 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') {
-            return "image/png";
+    }
+
+    private String normalizeDescription(String description) {
+        String value = description == null ? "" : description.trim();
+        if (value.length() > MAX_DESCRIPTION_LENGTH) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "补充说明不能超过 " + MAX_DESCRIPTION_LENGTH + " 字");
         }
-        if (data.length >= 6 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F'
-                && data[3] == '8' && (data[4] == '7' || data[4] == '9') && data[5] == 'a') {
-            return "image/gif";
-        }
-        if (data.length >= 12 && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F'
-                && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P') {
-            return "image/webp";
-        }
-        if (data[0] == 'B' && data[1] == 'M') {
-            return "image/bmp";
-        }
-        return null;
+        return value;
     }
 }

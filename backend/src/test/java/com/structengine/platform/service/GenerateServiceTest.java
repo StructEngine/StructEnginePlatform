@@ -8,18 +8,19 @@ import com.structengine.platform.llm.LlmClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class GenerateServiceTest {
@@ -52,17 +53,75 @@ class GenerateServiceTest {
 
     @Test
     void generateSuccess() {
-        when(llmClient.generate(any(byte[][].class))).thenReturn("[[\"minecraft:stone\",0,0,0]]");
-        String jsonUrl = service().generate(new MultipartFile[]{image()}, "example.com");
+        when(llmClient.generate(any(byte[][].class), anyString()))
+                .thenReturn("[[\"minecraft:stone\",0,0,0]]");
+        String jsonUrl = service().generate(new MultipartFile[]{image()}, null, "example.com");
         assertTrue(jsonUrl.startsWith("http://example.com/models/"));
         assertTrue(jsonUrl.endsWith(".json"));
     }
 
     @Test
-    void rejectsWrongCount() {
-        GenerateService service = service();
+    void acceptsSingleImageAndAsksForCompletion() {
+        when(llmClient.generate(any(byte[][].class), anyString()))
+                .thenReturn("[[\"minecraft:stone\",0,0,0]]");
+
+        service().generate(new MultipartFile[]{image()}, "一座带红色屋顶的小木屋", "h");
+
+        ArgumentCaptor<String> instruction = ArgumentCaptor.forClass(String.class);
+        verify(llmClient).generate(any(byte[][].class), instruction.capture());
+        assertTrue(instruction.getValue().contains("参考图数量少于 3 张"));
+        assertTrue(instruction.getValue().contains("推断缺失方向"));
+        assertTrue(instruction.getValue().contains("一座带红色屋顶的小木屋"));
+    }
+
+    @Test
+    void acceptsTwoImages() {
+        when(llmClient.generate(any(byte[][].class), anyString()))
+                .thenReturn("[[\"minecraft:stone\",0,0,0]]");
+
+        String jsonUrl = service().generate(new MultipartFile[]{image(), image()}, "", "example.com");
+
+        assertTrue(jsonUrl.endsWith(".json"));
+    }
+
+    @Test
+    void acceptsThreeImagesAndUsesIntersectionInstruction() {
+        when(llmClient.generate(any(byte[][].class), anyString()))
+                .thenReturn("[[\"minecraft:stone\",0,0,0]]");
+
+        service().generate(new MultipartFile[]{image(), image(), image()}, null, "h");
+
+        ArgumentCaptor<String> instruction = ArgumentCaptor.forClass(String.class);
+        verify(llmClient).generate(any(byte[][].class), instruction.capture());
+        assertTrue(instruction.getValue().contains("参考图覆盖三视图"));
+    }
+
+    @Test
+    void rejectsEmptyImageList() {
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.generate(new MultipartFile[]{}, "h"));
+                () -> service().generate(new MultipartFile[]{}, null, "h"));
+        assertEquals(ErrorCode.BAD_REQUEST, e.errorCode());
+    }
+
+    @Test
+    void rejectsNullImageList() {
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service().generate(null, null, "h"));
+        assertEquals(ErrorCode.BAD_REQUEST, e.errorCode());
+    }
+
+    @Test
+    void rejectsMoreThanThreeImages() {
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service().generate(
+                        new MultipartFile[]{image(), image(), image(), image()}, null, "h"));
+        assertEquals(ErrorCode.BAD_REQUEST, e.errorCode());
+    }
+
+    @Test
+    void rejectsTooLongDescription() {
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service().generate(new MultipartFile[]{image()}, "a".repeat(1001), "h"));
         assertEquals(ErrorCode.BAD_REQUEST, e.errorCode());
     }
 
@@ -70,7 +129,7 @@ class GenerateServiceTest {
     void rejectsNonImage() {
         MockMultipartFile txt = new MockMultipartFile("images", "a.txt", "text/plain", "hello".getBytes());
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service().generate(new MultipartFile[]{txt}, "h"));
+                () -> service().generate(new MultipartFile[]{txt}, null, "h"));
         assertEquals(ErrorCode.BAD_REQUEST, e.errorCode());
     }
 
@@ -83,37 +142,34 @@ class GenerateServiceTest {
         big[2] = (byte) 0xFF;
         MockMultipartFile file = new MockMultipartFile("images", "big.jpg", "image/jpeg", big);
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service().generate(new MultipartFile[]{file}, "h"));
+                () -> service().generate(new MultipartFile[]{file}, null, "h"));
         assertEquals(ErrorCode.TOO_LARGE, e.errorCode());
     }
 
     @Test
     void mapsAiFailureToUpstreamError() {
-        when(llmClient.generate(any(byte[][].class)))
+        when(llmClient.generate(any(byte[][].class), anyString()))
                 .thenThrow(new BusinessException(ErrorCode.UPSTREAM_ERROR));
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service().generate(new MultipartFile[]{image()}, "h"));
+                () -> service().generate(new MultipartFile[]{image()}, null, "h"));
         assertEquals(ErrorCode.UPSTREAM_ERROR, e.errorCode());
     }
 
     @Test
     void mapsParseFailureToUnprocessable() {
-        when(llmClient.generate(any(byte[][].class))).thenReturn("garbage");
+        when(llmClient.generate(any(byte[][].class), anyString())).thenReturn("garbage");
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service().generate(new MultipartFile[]{image()}, "h"));
+                () -> service().generate(new MultipartFile[]{image()}, null, "h"));
         assertEquals(ErrorCode.UNPROCESSABLE, e.errorCode());
     }
 
     @Test
-    void detectImageTypeRecognizesFormats() {
-        assertNotNull(GenerateService.detectImageType(JPEG));
-        assertNotNull(GenerateService.detectImageType(
-                new byte[]{(byte) 0x89, 'P', 'N', 'G'}));
-        assertNotNull(GenerateService.detectImageType(
-                new byte[]{'G', 'I', 'F', '8', '9', 'a'}));
-        assertNotNull(GenerateService.detectImageType(
-                new byte[]{'B', 'M', 0, 0}));
-        assertNull(GenerateService.detectImageType("hello".getBytes()));
-        assertNull(GenerateService.detectImageType(null));
+    void rejectsModelExceedingBlockLimit() {
+        props.setMaxModelBlocks(1);
+        when(llmClient.generate(any(byte[][].class), anyString()))
+                .thenReturn("[[\"minecraft:stone\",0,0,0],[\"minecraft:stone\",1,0,0]]");
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service().generate(new MultipartFile[]{image()}, null, "h"));
+        assertEquals(ErrorCode.UNPROCESSABLE, e.errorCode());
     }
 }

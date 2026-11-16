@@ -15,7 +15,7 @@
     <artifactId>structengine-platform</artifactId>
     <version>1.0.0</version>
     <name>structengine-platform</name>
-    <description>三视图转 Minecraft 方块的一体化 Web 服务（Java 后端）</description>
+    <description>参考图转 Minecraft 方块的一体化 Web 服务（Java 后端）</description>
 
     <properties>
         <java.version>21</java.version>
