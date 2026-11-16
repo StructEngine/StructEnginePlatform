@@ -54,7 +54,6 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 | `STRUCTENGINE_AI_API_KEY` | AI API Key | 空 |
 | `STRUCTENGINE_AI_MODEL` | AI 模型 ID | `cn:deepseek-v4.1-flash` |
 | `STRUCTENGINE_MAX_MODEL_BLOCKS` | 单模型最大方块数 | `20000` |
-| `STRUCTENGINE_GOOGLE_STREET_API_KEY` | 可选街景 API Key；不配置不影响启动 | 空 |
 
 > 本地开发把敏感配置写入 `backend/src/main/resources/application-local.yml`，并通过
 > `STRUCTENGINE_LOCAL_CONFIG` 指定绝对/相对路径；默认值为 `./src/main/resources/application-local.yml`。
