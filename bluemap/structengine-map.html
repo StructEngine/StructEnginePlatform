@@ -63,12 +63,10 @@
           if (!markerSet) {
             markerSet = new B.MarkerSet('structengine-selection');
             markerSet.data.toggleable = false;
-            markerSet.data.listed = false;
             w.bluemap.mapViewer.markers.add(markerSet);
           }
           if (!marker) {
             marker = new B.HtmlMarker('structengine-center');
-            marker.data.listed = false;
             marker.html = '<div style="width:18px;height:18px;margin:-9px 0 0 -9px;border:3px solid #0f1410;border-radius:50%;background:#7cbd4b;box-shadow:0 0 0 2px #7cbd4b,0 0 18px rgba(124,189,75,.9);"></div>';
             markerSet.add(marker);
           }
