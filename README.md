@@ -1,384 +1,234 @@
-# structengine-platform
+# StructEnginePlatform
 
-像素三视图转 Minecraft 方块的极简一体化服务（Java 后端 + Vue 前端）。
+StructEngine 的云端控制面：管理多个 Minecraft 游戏服、BlueMap 地图选点、玩家选择、Spring AI 对话生成体素模型，以及模型部署/回滚/恢复。
 
-## 项目简介
+## 架构
 
-用户上传已像素化的物体三视图（正视、侧视、俯视），服务调用多模态 AI 进行空间推理，通过三视图投影交集运算输出确定性的 Minecraft 体素坐标，并以紧凑二维数组 JSON 文件对外分发，供 Fabric 模组通过 `/buildmodel <url>` 导入构建。
+```text
+浏览器
+  ├─ 管理台 /api（Spring Boot）
+  └─ BlueMap iframe（每个 MCS 自带 BlueMap 5.16）
+        │ postMessage 选点
+        ▼
+StructEnginePlatform
+  ├─ WebSocket /ws/game  ← 多个 MCS 插件（协议 v2）
+  ├─ Spring AI → OpenAI-compatible 上游
+  ├─ SQLite（模型、任务、对话）
+  └─ data/models/*.json（外网可访问）
+        ▲
+        │ BUILD / ROLLBACK / REDO
+MCS 插件 ── 原有分批构建 / 回滚 / 恢复核心
+```
+
+### 关键流程
+
+1. MCS 插件通过 `ws://platform:8080/ws/game?serverId=...` 连接 Platform。
+2. 插件发送 `HELLO`（serverId、serverName、BlueMap URL、mapId、协议版本），并每 10 秒/玩家事件时上报 `PLAYER_LIST`。
+3. Web 选择 MCS → 加载该服的 BlueMap 定制页 → 点击选点（建筑中心 X/Z）→ 选择在线/离线玩家。
+4. 在 AI 对话窗口描述建筑；调用 `/api/models/generate` 生成严格 voxel JSON。
+5. 生成后预览模型，点击部署；Platform 查询地表 Y、计算中心偏移与旋转，落盘部署模型并发送 `BUILD`。
+6. 插件下载模型、按绝对原点入队，使用原有分批构建/快照机制执行，并通过 `BUILD_STATUS` 回报进度。
+7. Web 通过 `/api/servers/{serverId}/history` 查看插件历史，调用 rollback/redo。
 
 ## 技术栈
 
-- 后端：Java 21，Spring Boot 4（内嵌 Tomcat）+ Spring WebSocket
-- 并发：JDK 21 虚拟线程（`spring.threads.virtual.enabled=true`），WebSocket RPC 同步阻塞不占用 OS 线程
-- 前端：Vue 3 + Element Plus + Leaflet + Vite（构建产物 `dist` 由后端统一托管）
-- 存储：本地文件系统（`./data/images` 存原图、`./data/models` 存模型 JSON），无数据库
-- 托管：单进程统一托管 API 路由、模型静态分发与前端 `dist` 静态资源（SPA 回退），无 Nginx
+- 后端：Java 21、Spring Boot 4、Spring WebSocket、Spring AI、SQLite JDBC
+- 前端：Vue 3、Element Plus、Three.js 模型预览
+- 地图：BlueMap 5.16（Paper/Fabric/NeoForge 对应版本）
+- 存储：SQLite + 本地模型文件（`data/models`）
+- 游戏端：Fabric / Paper / NeoForge 插件
 
 ## 环境变量
 
-服务所有配置均通过环境变量注入，命名遵循 `STRUCTENGINE_` 前缀 + UPPER_SNAKE_CASE。
+| 变量 | 含义 | 默认值 |
+|---|---|---|
+| `STRUCTENGINE_SERVER_PORT` | Platform 监听端口 | `8080` |
+| `STRUCTENGINE_PROJECT_ROOT` | 项目根目录，data/dist 的解析基准 | JVM `user.dir` |
+| `STRUCTENGINE_DATA_DIR` | 数据目录（含 models/images/structengine.db） | `./data` |
+| `STRUCTENGINE_PUBLIC_BASE_URL` | 模型文件对外基础地址；为空按请求 Host 推导 | 空 |
+| `STRUCTENGINE_ADMIN_PASSWORD` | 单管理员登录密码 | `change-me`（生产必须覆盖） |
+| `STRUCTENGINE_GAME_TOKEN` | MCS WebSocket 握手令牌 | 空（生产必须设置） |
+| `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件回包的秒数 | `5` |
+| `STRUCTENGINE_AI_BASE_URL` | OpenAI-compatible Base URL | `https://token.dcepstc.com/v1` |
+| `STRUCTENGINE_AI_API_KEY` | AI API Key | 空 |
+| `STRUCTENGINE_AI_MODEL` | AI 模型 ID | `cn:deepseek-v4.1-flash` |
+| `STRUCTENGINE_MAX_MODEL_BLOCKS` | 单模型最大方块数 | `20000` |
+| `STRUCTENGINE_GOOGLE_STREET_API_KEY` | 可选街景 API Key；不配置不影响启动 | 空 |
 
-| 变量 | 含义 | 默认值 | 必填 |
-|------|------|--------|------|
-| `STRUCTENGINE_SERVER_PORT` | 服务监听端口 | `8080` | 否 |
-| `STRUCTENGINE_AI_API_URL` | AI 推理服务地址（OpenAI 兼容，不含 `/chat/completions`，如 `https://api.example.com/v1`） | 无 | 是 |
-| `STRUCTENGINE_AI_API_KEY` | AI 认证密钥（仅服务端使用，不会出现在日志与响应中） | 无 | 是 |
-| `STRUCTENGINE_AI_MODEL` | AI 视觉模型名 | 无 | 是 |
-| `STRUCTENGINE_PROJECT_ROOT` | 项目根目录；相对 `data-dir` 与 `dist` 以此为基准 | JVM `user.dir` | 否 |
-| `STRUCTENGINE_DATA_DIR` | 数据根目录（下含 `images`/`models` 子目录），相对路径基于项目根目录 | `./data` | 否 |
-| `STRUCTENGINE_GOOGLE_STREET_API_KEY` | 可选街景模块的 Google 3D Tiles Key；不配置时仅街景接口不可用，不影响 Platform 启动 | 空 | 否 |
-| `STRUCTENGINE_MAX_IMAGE_MB` | 单图片大小上限（MB） | `10` | 否 |
-| `STRUCTENGINE_GAME_TOKEN` | 游戏服 WebSocket 握手令牌；为空时不校验（仅限本地开发） | 空 | 生产建议 |
-| `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件 `RESPONSE_Y` 的超时秒数 | `5` | 否 |
-| `STRUCTENGINE_PUBLIC_BASE_URL` | 模型文件对外基础地址，如 `https://build.example.com`；为空按请求 Host 推导 | 空 | 反向代理时建议 |
-
-> 三个必填项（`STRUCTENGINE_AI_API_URL` / `STRUCTENGINE_AI_API_KEY` / `STRUCTENGINE_AI_MODEL`）缺失或为空时，服务将拒绝启动并报错。
+> 本地开发把敏感配置写入 `backend/application-local.yml`。该文件已被 `.gitignore` 忽略，不要提交真实 API Key。
 >
-> `dist` 目录为**固定值 `./dist`**（对齐镜像 `/app/dist`），不通过环境变量配置。
+> 如果 API Key 曾出现在聊天/日志中，请立即在服务商侧轮换。
 
-配置方式（任选其一）：
+## BlueMap 5.16 安装
 
-```bash
-# 1. 临时设置（当前 shell）
-export STRUCTENGINE_AI_API_URL="https://api.example.com/v1"
-export STRUCTENGINE_AI_API_KEY="sk-xxx"
-export STRUCTENGINE_AI_MODEL="your-vision-model"
+三端分别放入：
 
-# 2. 使用 .env 文件 + docker-compose（见下文 Docker 部署）
+```text
+Fabric:   /opt/minecraft/server/mods/bluemap-5.16-fabric.jar
+Paper:    /opt/minecraft/paper/plugins/bluemap-5.16-paper.jar
+NeoForge: /opt/minecraft/neoforge/mods/bluemap-5.16-neoforge.jar
 ```
 
-## 本地启动
-
-```bash
-# 后端（需 JDK 21 + Maven）
-cd backend
-mvn -B -DskipTests package
-STRUCTENGINE_AI_API_URL="https://api.example.com/v1" \
-STRUCTENGINE_AI_API_KEY="sk-xxx" \
-STRUCTENGINE_AI_MODEL="your-vision-model" \
-java -jar target/app.jar
-
-# 前端（开发模式，Vite dev server，/api 代理到后端）
-cd frontend
-npm install
-npm run dev   # 默认 http://localhost:5173，代理目标见 .env.development
-```
-
-## Docker 部署
-
-### 镜像说明
-
-镜像采用多阶段构建：阶段 1 用 `maven:3.9-eclipse-temurin-21` 编译打包 `app.jar`，阶段 2 用 `eclipse-temurin:21-jre-alpine` 运行，仅包含 JRE、`app.jar`、前端 `dist` 静态产物与数据挂载点，**不含** Maven/Node 构建工具链。
-
-### 方式一：本地手动构建镜像
-
-```bash
-# 1. 构建前端产物（Node 20+）
-cd frontend
-npm ci
-npm run build
-cd ..
-cp -r frontend/dist dist
-
-# 2. 构建镜像（多阶段，内部完成 Maven 编译）
-docker build -t structengine-platform .
-```
-
-### 方式二：使用 CI 推送的镜像
-
-推送到 `main` 分支或手动触发 `build-and-push` 工作流后，镜像会推送至 GHCR：
-
-```bash
-docker pull ghcr.io/<owner>/<repo>:latest
-```
-
-### 运行容器
-
-```bash
-docker run -d \
-  --name structengine \
-  -p 8080:8080 \
-  -e STRUCTENGINE_AI_API_URL="https://api.example.com/v1" \
-  -e STRUCTENGINE_AI_API_KEY="sk-xxx" \
-  -e STRUCTENGINE_AI_MODEL="your-vision-model" \
-  -e STRUCTENGINE_SERVER_PORT=8080 \
-  -e STRUCTENGINE_MAX_IMAGE_MB=10 \
-  -v structengine-data:/app/data \
-  --restart unless-stopped \
-  structengine-platform
-```
-
-参数说明：
-
-| 参数 | 说明 |
-|------|------|
-| `-p 8080:8080` | 将宿主机 8080 端口映射到容器监听端口 |
-| `-e STRUCTENGINE_*` | 注入环境变量（必填项必须提供，否则容器启动失败） |
-| `-v structengine-data:/app/data` | 挂载命名卷持久化图片与模型数据 |
-| `--restart unless-stopped` | 容器异常退出或宿主机重启后自动恢复 |
-
-### docker-compose 示例
+首次启动后在 BlueMap 配置中接受 Mojang 资源下载：
 
 ```yaml
-services:
-  structengine:
-    image: ghcr.io/<owner>/<repo>:latest
-    container_name: structengine
-    ports:
-      - "8080:8080"
-    environment:
-      STRUCTENGINE_AI_API_URL: "https://api.example.com/v1"
-      STRUCTENGINE_AI_API_KEY: "sk-xxx"
-      STRUCTENGINE_AI_MODEL: "your-vision-model"
-      STRUCTENGINE_SERVER_PORT: "8080"
-      STRUCTENGINE_MAX_IMAGE_MB: "10"
-    volumes:
-      - structengine-data:/app/data
-    restart: unless-stopped
-
-volumes:
-  structengine-data:
+accept-download: true
 ```
 
-启动与停止：
+Web 端口配置（本文测试环境）：
+
+| 平台 | 端口 | mapId |
+|---|---|---|
+| Fabric | 8100 | world |
+| Paper | 8101 | world |
+| NeoForge | 8102 | world |
+
+把定制地图页安装到 BlueMap webroot：
 
 ```bash
-docker compose up -d     # 启动
-docker compose logs -f   # 查看日志
-docker compose down      # 停止并移除容器（保留数据卷）
+./scripts/install-bluemap-page.sh /opt/minecraft/server/bluemap/web
+./scripts/install-bluemap-page.sh /opt/minecraft/paper/bluemap/web
+./scripts/install-bluemap-page.sh /opt/minecraft/neoforge/bluemap/web
 ```
 
-### 数据持久化
+页面地址：
 
-服务将用户上传的原图与生成的模型 JSON 持久化在容器的 `/app/data` 目录下：
-
-- `images/`：原图，命名 `{uuid}_{index}.jpg`
-- `models/`：模型文件，命名 `{uuid}.json`
-
-请务必通过 `-v`（或 compose 的 `volumes`）将该目录挂载到宿主机或命名卷，否则容器重建后数据会丢失。
-
-## 地图选点（Squaremap）
-
-前端「地图选点建造」页面把 [Squaremap](https://github.com/jpenilla/squaremap) 瓦片嵌入 Leaflet，管理员点击地图即可拾取精确的 `(X, Z)`，随后由 Platform 通过 WebSocket 向游戏服查询地表高度 `Y`，调用 AI 生成模型并下发构建。
-
-### 前置条件
-
-1. 游戏服安装并启用 **Squaremap**，开放其 Web Server 端口（默认 `8123`，以实际配置为准）。
-2. 游戏服安装 **StructEngine** 插件（Fabric / NeoForge / Paper 任一），并配置 `STRUCTENGINE_WS_URL` 指向本 Platform 的 `ws://<platform-host>:<port>/ws/game`（阶段 3 提供）。
-3. 前端构建时注入以下变量（开发模式默认值见 `frontend/.env.development`，生产默认值见 `frontend/.env.production`）：
-
-| 变量 | 含义 | 示例 |
-|------|------|------|
-| `VITE_SQUAREMAP_URL` | Squaremap Web 根地址，或同源反向代理路径 | `/squaremap` 或 `http://map.example.com:8123` |
-| `VITE_SQUAREMAP_WORLD` | 要展示的 Squaremap 世界名 | `world` |
-| `VITE_SQUAREMAP_PROXY_TARGET` | 仅开发模式：Vite 把 `/squaremap` 反代到该地址 | `http://localhost:8123` |
-
-> 生产环境需由 Nginx / Caddy 把 `/squaremap` 反向代理到 Squaremap Web Server；若直接把 `VITE_SQUAREMAP_URL` 配成完整 URL，则需确认 Squaremap 允许跨域访问瓦片与 `settings.json`。
-
-### 使用流程
-
-1. 打开页面右上角「地图选点建造」。
-2. 点击地图选点，坐标按 `Math.floor` 向下取整，保证负坐标也落在正确方块内。
-3. 填写玩家名与建筑提示词，选择已连接的游戏服务器。
-4. 点击「确定构建」，页面进入 Loading，Platform 等待游戏服回传 `Y` 后生成模型并下发 `BUILD`。
-5. 成功后展示完整坐标 `X / Y / Z` 与模型 URL。
-
-### 像素化渲染
-
-地图容器的 `.leaflet-tile-pane img` 已强制应用：
-
-```css
-image-rendering: pixelated;
-image-rendering: crisp-edges;
--ms-interpolation-mode: nearest-neighbor;
-filter: none !important;
+```text
+http://192.168.1.201:8100/structengine-map.html
+http://192.168.1.201:8101/structengine-map.html
+http://192.168.1.201:8102/structengine-map.html
 ```
 
-确保地图放大时方块边缘锋利、不会被浏览器双线性插值模糊。
+页面只保留 BlueMap 画布，通过 `postMessage` 向 Platform 发送 `{x,z,rawY,mapId}`。
 
-## 地图选点建造（WebSocket 调度）
+## 游戏服插件配置
 
-### 链路
-
-```
-Web 点击 (X,Z)
-   → POST /api/map/build
-   → Platform 生成 taskId，向插件发 QUERY_Y
-   → 插件主线程 getHighestBlockYAt(x,z)
-   → 插件回传 RESPONSE_Y(taskId,y)
-   → Platform 虚拟线程 future.get(5s) 被唤醒
-   → Mock/Spring AI 生成体素模型，落盘 data/models/{taskId}.json
-   → Platform 下发 BUILD(taskId, playerName, x,y,z, modelUrl)
-   → 插件异步下载 JSON，压入原有 BuildTaskQueue，按绝对坐标分批构建
-```
-
-### WebSocket 端点
-
-- 地址：`ws://<platform-host>:<port>/ws/game?serverId=<serverId>`
-- 鉴权：配置 `STRUCTENGINE_GAME_TOKEN` 后，插件必须携带请求头 `X-StructEngine-Token: <token>`（或 `Authorization: Bearer <token>`）。
-- 心跳：插件每 20 秒发送 `PING`，Platform 回 `PONG`。
-- 断线重连：插件按 1s → 30s 指数退避重连；Platform 会立即失败该服尚未完成的 `QUERY_Y` Future，避免请求线程空等。
-
-统一消息体（空字段不序列化）：
-
-```json
-{"action":"QUERY_Y","taskId":"uuid","playerName":"Steve","x":12,"z":-8}
-{"action":"RESPONSE_Y","taskId":"uuid","y":70}
-{"action":"BUILD","taskId":"uuid","playerName":"Steve","x":12,"y":70,"z":-8,"modelUrl":"http://platform/models/uuid.json"}
-{"action":"ERROR","taskId":"uuid","message":"主线程查询失败"}
-```
-
-### 构建接口
-
-`GET /api/map/servers`：
-
-```json
-{"code":200,"message":"success","data":[{"serverId":"survival"}]}
-```
-
-`POST /api/map/build`：
-
-```json
-{"serverId":"survival","x":12,"z":-8,"playerName":"Steve","prompt":"红石城堡"}
-```
-
-成功响应（`y` 为插件实时回传的地表高度）：
-
-```json
-{"code":200,"message":"success","data":{
-  "taskId":"uuid","serverId":"survival","playerName":"Steve",
-  "x":12,"y":70,"z":-8,"modelUrl":"http://platform/models/uuid.json"
-}}
-```
-
-> 当前模型生成由 `MockStructureGenerator` 提供确定性占位建筑；`StructureGenerator` 已抽象，
-> 后续接入 Spring AI 时新增实现并替换 Bean 即可，RPC/落盘/下发链路无需改动。
->
-> 模型文件使用项目根目录解析后的绝对路径 `{data-dir}/models/{taskId}.json` 落盘，
-> 并由 `GET /models/{filename}` 对外分发；游戏服必须能访问 `modelUrl`。
-
-## 真机验收（可选）
-
-仓库提供 `scripts/verify_remote_build.py`，用真实 Minecraft 服务端的 RCON 逐方块核对构建结果，不依赖插件自报成功。
-
-### 服务端准备（Paper 示例）
-
-`server.properties`：
-
-```properties
-enable-rcon=true
-rcon.port=25575
-rcon.password=change-me
-broadcast-rcon-to-ops=false
-```
-
-建议使用超平坦测试世界或远离主城的测试坐标，并关闭出生点保护：
-
-```properties
-level-type=minecraft\:flat
-spawn-protection=0
-```
-
-启动游戏服前设置插件变量：
+在 MCS 启动前设置（以 NeoForge 为例）：
 
 ```bash
-export STRUCTENGINE_WS_URL=ws://127.0.0.1:8080/ws/game
-export STRUCTENGINE_SERVER_ID=local-test
+export STRUCTENGINE_WS_URL=ws://192.168.1.201:8080/ws/game
+export STRUCTENGINE_SERVER_ID=neoforge-local
+export STRUCTENGINE_SERVER_NAME="NeoForge 测试服"
 export STRUCTENGINE_WS_TOKEN=change-me
+export STRUCTENGINE_BLUEMAP_URL=http://192.168.1.201:8102/structengine-map.html
+export STRUCTENGINE_BLUEMAP_MAP_ID=world
 ```
 
-Platform 侧设置相同的令牌，并确保游戏服能访问 `modelUrl`：
+插件文件：
+
+```text
+Fabric:   mods/structengine-fabric-1.0.0.jar
+Paper:    plugins/structengine-paper-1.0.0.jar
+NeoForge: mods/structengine-neoforge-1.0.0.jar
+```
+
+原有 `/buildmodel <url>`、`/rollback`、`/redo` 命令继续保留。
+
+## 启动
 
 ```bash
-export STRUCTENGINE_GAME_TOKEN=change-me
-export STRUCTENGINE_PUBLIC_BASE_URL=http://127.0.0.1:8080
+cd backend
+mvn -B -DskipTests package
+java -jar target/app.jar
 ```
 
-### 执行验收
+前端：
 
 ```bash
-cd StructEnginePlatform
-python3 scripts/verify_remote_build.py \
-  --platform http://127.0.0.1:8080 \
-  --server-id local-test \
-  --x 1000 --z 1000 \
-  --player Steve \
-  --prompt "验收小屋" \
-  --rcon-host 127.0.0.1 \
-  --rcon-port 25575 \
-  --rcon-password change-me
+cd frontend
+npm install
+npm run dev      # 开发，默认 http://localhost:5173
+npm run build    # 产物在 frontend/dist
 ```
 
-脚本会：
+后端从 `STRUCTENGINE_PROJECT_ROOT/dist` 托管前端静态资源；本地可：
 
-1. 检查 `/api/map/servers` 中目标游戏服是否在线；
-2. 调用 `/api/map/build`，断言返回的完整 `(x,y,z)` 与模型 URL；
-3. 下载模型 JSON；
-4. 通过 RCON 对模型中的每个方块执行：
-   ```mcfunction
-   execute if block <x+dx> <y+dy> <z+dz> <block_id>
-   ```
-   根据服务端返回的 `Test passed` / `Test failed` 统计失败坐标；
-5. 全部匹配时输出 `验收通过: 核对 N 个方块，全部与模型一致`，任一不匹配则退出码为 `1`。
+```bash
+cp -r frontend/dist dist
+```
 
-可选参数：
+## 管理台使用
 
-| 参数 | 说明 |
-|------|------|
-| `--expected-y` | 断言插件回传的 Y（超平坦测试世界可写死） |
-| `--max-checks N` | 只核对前 N 个方块，适合超大模型快速抽检 |
-| `--settle-seconds N` | BUILD 后等待插件下载/分批放置的秒数，默认 3 |
-| `--success-text` | RCON 方块命中时的返回文本，默认 `Test passed`；非英文服务端按实际调整 |
-| `--failure-text` | RCON 方块未命中时的返回文本，默认 `Test failed` |
-| `--skip-rcon` | 只触发构建并检查模型文件，不连接 RCON |
+1. 打开 `http://192.168.1.201:8080/`，输入管理员密码。
+2. 选择游戏服。
+3. 在 BlueMap 地图点击选择建筑中心。
+4. 选择在线玩家，或切换到离线玩家输入名称/UUID。
+5. 在 AI 对话窗口讨论方案；填写模型描述。
+6. 点击“生成模型”，等待模型预览。
+7. 选择朝向（南/东/北/西/朝向玩家），点击“部署到 ...”。
+8. 在任务状态中查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`。
+9. 在构建历史中执行回滚/恢复。
 
-> 没有 RCON 时，也可以用 `--skip-rcon` 验证 Platform 链路，再结合游戏内截图/日志人工确认方块；但逐方块 RCON 核对是最直接、可重复的验收方式。
+## HTTP API
 
-## 接口说明
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/auth/login` | 管理员登录，返回会话 Cookie |
+| GET | `/api/auth/status` | 登录状态 |
+| POST | `/api/auth/logout` | 退出 |
+| GET | `/api/servers` | 已连接游戏服、BlueMap URL、玩家列表 |
+| GET | `/api/servers/{serverId}/history` | 查询玩家构建历史 |
+| POST | `/api/servers/{serverId}/rollback` | 回滚指定历史 |
+| POST | `/api/servers/{serverId}/redo` | 恢复指定历史 |
+| POST | `/api/ai/chat` | AI 对话 |
+| GET | `/api/ai/chat/{sessionId}` | 对话历史 |
+| POST | `/api/models/generate` | 对话描述生成模型 |
+| POST | `/api/tasks/deploy` | 部署模型 |
+| GET | `/api/tasks/{taskId}` | 任务状态 |
+| GET | `/api/tasks?serverId=&playerUuid=` | 玩家任务列表 |
+| GET | `/models/{filename}` | 模型公开分发（MCS 下载） |
 
-### 上传转换
+除 `/models/**`、`/api/auth/**` 与游戏服 WebSocket 外，API 需要管理员会话。
 
-`POST /api/generate`，`Content-Type: multipart/form-data`，字段 `images`（1 张拼合三视图，或 3 张分立正/侧/俯视图）。
+> 旧 `/api/map/build` 与 Squaremap 页面已删除。
+
+## WebSocket 协议 v2
+
+主要消息：
+
+```text
+MCS -> Platform: HELLO, PLAYER_LIST, RESPONSE_Y, BUILD_STATUS, HISTORY_RESPONSE, ERROR, PING
+Platform -> MCS: QUERY_Y, BUILD, HISTORY_REQUEST, ROLLBACK, REDO, PONG
+```
+
+`BUILD` 包含：
 
 ```json
-// 成功响应
-{"code":200,"message":"success","data":{"json_url":"http://<server-host>/models/3f2a8b9c.json"}}
-// 失败响应（data 省略）
-{"code":400,"message":"输入形态不合法：请上传 1 张拼合三视图或 3 张分立三视图"}
+{
+  "action": "BUILD",
+  "taskId": "...",
+  "playerUuid": "...",
+  "playerName": "HelloKitty",
+  "x": 3996, "y": -60, "z": 3996,
+  "modelUrl": "http://platform/models/task.json",
+  "modelName": "一座小木屋",
+  "rotation": 0
+}
 ```
 
-### 模型分发
+`x/y/z` 是模型原点（最小角），模型 JSON 仍是相对坐标；插件按 `origin + offset` 放置。
 
-`GET /models/:filename`，返回纯 JSON 紧凑二维数组：
+## 数据与持久化
 
-```json
-[["minecraft:stone",0,0,0],["minecraft:cobblestone",1,0,0],["minecraft:glass",0,1,0]]
-```
-
-## 错误码
-
-| code | 含义 |
-|------|------|
-| 200 | 成功 |
-| 400 | 输入非法 |
-| 413 | 文件过大或数量超限 |
-| 422 | 数据解析失败 |
-| 502 | 上游推理失败 |
-| 503 | 游戏服务器未连接 |
-| 504 | 游戏服务器响应超时 |
-| 500 | 存储失败 |
+- SQLite：`{data-dir}/structengine.db`
+  - `model_draft`
+  - `build_task`
+  - `chat_message`
+- 模型文件：`{data-dir}/models/{id}.json`
+- 历史快照仍由插件内存保存，MCS 重启后清空（与原有行为一致）。
 
 ## 测试
 
-单元测试按模块分批执行（每批不超过 64 个测试项）：
-
 ```bash
 cd backend
-mvn -B -Dtest=com.structengine.platform.llm.** test
-mvn -B -Dtest=com.structengine.platform.service.** test
-mvn -B -Dtest=com.structengine.platform.domain.**,com.structengine.platform.common.**,com.structengine.platform.config.** test
-mvn -B -Dtest=com.structengine.platform.game.** test
+mvn test
+
+cd ../frontend
+npm test
+npm run build
 ```
 
-`GameWebSocketIntegrationTest` 会启动随机端口的完整 Spring 上下文，模拟插件完成
-`QUERY_Y → RESPONSE_Y → BUILD` 全链路，并校验模型静态 URL 与绝对路径落盘。
+测试包含：
+- WebSocket 握手/HELLO/玩家列表/历史 RPC 集成测试；
+- Spring AI 配置启动与真实上游调用（本地配置存在时）；
+- 模型生成/部署/回滚的 API 与真机 RCON 验收脚本。

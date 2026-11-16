@@ -38,7 +38,6 @@ public class AdminAuthInterceptor implements HandlerInterceptor {
         return path.startsWith("/api/auth/")
                 || path.startsWith("/models/")
                 || path.startsWith("/ws/")
-                || path.startsWith("/api/map/")
                 || path.equals("/")
                 || path.startsWith("/assets/")
                 || path.startsWith("/favicon");

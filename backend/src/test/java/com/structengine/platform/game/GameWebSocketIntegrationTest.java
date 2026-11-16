@@ -12,6 +12,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -20,21 +22,16 @@ import java.net.http.WebSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 端到端验证：真实 Spring WebSocket 端点 + 模拟插件 + REST 构建请求。
- *
- * <p>覆盖 QUERY_Y → RESPONSE_Y → Mock 模型生成 → 静态 URL 分发 → BUILD 的完整链路。
+ * 协议 v2 端到端验证：真实 WebSocket、HELLO、玩家列表、管理员会话与历史查询。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "structengine.ai-api-url=http://localhost:1",
@@ -71,70 +68,65 @@ class GameWebSocketIntegrationTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
-    void fullQueryGenerateAndBuildFlow() throws Exception {
+    void registersHelloPlayerListAndExposesHistory() throws Exception {
         assertEquals(Boolean.TRUE, environment.getProperty("spring.threads.virtual.enabled", Boolean.class));
 
         PluginListener listener = new PluginListener(mapper);
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-        WebSocket webSocket = client.newWebSocketBuilder()
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        WebSocket socket = http.newWebSocketBuilder()
                 .header("X-StructEngine-Token", "secret-token")
                 .connectTimeout(Duration.ofSeconds(5))
                 .buildAsync(URI.create("ws://localhost:" + port + "/ws/game?serverId=it"), listener)
                 .get(5, TimeUnit.SECONDS);
-
         listener.connected.get(5, TimeUnit.SECONDS);
-        assertTrue(gameServerRegistry.isConnected("it"));
+        socket.sendText("""
+                {"action":"HELLO","protocolVersion":2,"serverId":"it","serverName":"Integration",
+                 "blueMapUrl":"http://localhost:8100/structengine-map.html","mapId":"world"}
+                """, true).join();
+        socket.sendText("""
+                {"action":"PLAYER_LIST","serverId":"it","full":true,"players":[
+                  {"uuid":"00000000-0000-0000-0000-000000000001","name":"Steve","world":"world",
+                   "x":1.5,"y":64,"z":-2.5,"online":true}
+                ]}
+                """, true).join();
 
-        String requestBody = mapper.writeValueAsString(new java.util.LinkedHashMap<String, Object>() {{
-            put("playerName", "Steve");
-            put("x", 12);
-            put("z", -8);
-            put("prompt", "红石城堡");
-            put("serverId", "it");
-        }});
-        HttpRequest buildRequest = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/map/build"))
-                .timeout(Duration.ofSeconds(10))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
+        await(() -> gameServerRegistry.serverInfos().stream()
+                .anyMatch(info -> "it".equals(info.serverId())
+                        && "http://localhost:8100/structengine-map.html".equals(info.blueMapUrl())
+                        && info.playerCount() == 1));
 
-        HttpResponse<String> response = client.send(buildRequest, HttpResponse.BodyHandlers.ofString());
-        JsonNode payload = mapper.readTree(response.body());
-        assertEquals(200, payload.get("code").asInt(), response.body());
+        CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        HttpClient web = HttpClient.newBuilder().cookieHandler(cookies)
+                .connectTimeout(Duration.ofSeconds(5)).build();
 
-        JsonNode data = payload.get("data");
-        assertEquals(70, data.get("y").asInt());
-        assertEquals(12, data.get("x").asInt());
-        assertEquals(-8, data.get("z").asInt());
-        String modelUrl = data.get("modelUrl").asText();
-        assertTrue(modelUrl.startsWith("http://localhost:" + port + "/models/"));
-
-        JsonNode buildMessage = listener.builds.poll(5, TimeUnit.SECONDS);
-        assertNotNull(buildMessage, "插件应收到 BUILD 指令");
-        assertEquals("BUILD", buildMessage.get("action").asText());
-        assertEquals(data.get("taskId").asText(), buildMessage.get("taskId").asText());
-        assertEquals(70, buildMessage.get("y").asInt());
-        assertEquals(modelUrl, buildMessage.get("modelUrl").asText());
-
-        HttpResponse<String> modelResponse = client.send(
-                HttpRequest.newBuilder(URI.create(modelUrl)).GET().build(),
+        HttpResponse<String> unauth = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, modelResponse.statusCode());
-        assertTrue(modelResponse.body().startsWith("[["));
-        assertTrue(modelResponse.body().contains("minecraft:"));
+        assertEquals(401, unauth.statusCode());
 
-        Path modelFile = DATA_DIR.resolve("models").resolve(data.get("taskId").asText() + ".json");
-        assertTrue(Files.exists(modelFile), "模型应落盘到 " + modelFile);
-        assertEquals(modelResponse.body(), Files.readString(modelFile));
-        assertEquals(0, gameServerRegistry.pendingCount());
+        HttpResponse<String> login = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/auth/login"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"password\":\"change-me\"}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, login.statusCode());
+        assertTrue(login.body().contains("\"authenticated\":true"), login.body());
 
-        HttpResponse<String> serversResponse = client.send(
-                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/map/servers"))
+        HttpResponse<String> servers = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertTrue(servers.body().contains("\"serverName\":\"Integration\""), servers.body());
+        assertTrue(servers.body().contains("\"name\":\"Steve\""), servers.body());
+
+        HttpResponse<String> history = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port
+                                + "/api/servers/it/history?playerUuid=00000000-0000-0000-0000-000000000001&playerName=Steve"))
                         .GET().build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertTrue(serversResponse.body().contains("\"serverId\":\"it\""), serversResponse.body());
+        assertTrue(history.body().contains("\"historyId\":\"h-1\""), history.body());
 
-        webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
     }
 
     @Test
@@ -157,12 +149,26 @@ class GameWebSocketIntegrationTest {
                 .get(5, TimeUnit.SECONDS));
     }
 
+    private static void await(Check check) throws Exception {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (System.currentTimeMillis() < deadline) {
+            if (check.ok()) {
+                return;
+            }
+            Thread.sleep(25);
+        }
+        throw new AssertionError("condition not met before timeout");
+    }
+
+    private interface Check {
+        boolean ok();
+    }
+
     private static final class PluginListener implements WebSocket.Listener {
 
         private final ObjectMapper mapper;
         private final StringBuilder textBuffer = new StringBuilder();
         final CompletableFuture<Void> connected = new CompletableFuture<>();
-        final BlockingQueue<JsonNode> builds = new LinkedBlockingQueue<>();
 
         private PluginListener(ObjectMapper mapper) {
             this.mapper = mapper;
@@ -179,28 +185,27 @@ class GameWebSocketIntegrationTest {
             if (last) {
                 String text = textBuffer.toString();
                 textBuffer.setLength(0);
-                handle(text, webSocket);
+                try {
+                    JsonNode message = mapper.readTree(text);
+                    String action = message.get("action").asText();
+                    if ("CONNECTED".equals(action)) {
+                        connected.complete(null);
+                    } else if ("HISTORY_REQUEST".equals(action)) {
+                        String requestId = message.get("requestId").asText();
+                        webSocket.sendText("""
+                                {"action":"HISTORY_RESPONSE","requestId":"%s","history":[
+                                  {"historyId":"h-1","taskId":"t-1","modelName":"测试模型",
+                                   "createdAt":1700000000000,"blockCount":42,
+                                   "canRollback":true,"canRedo":false}
+                                ]}
+                                """.formatted(requestId), true);
+                    }
+                } catch (RuntimeException e) {
+                    connected.completeExceptionally(e);
+                }
             }
             webSocket.request(1);
             return null;
-        }
-
-        private void handle(String text, WebSocket webSocket) {
-            try {
-                JsonNode message = mapper.readTree(text);
-                String action = message.get("action").asText();
-                if ("CONNECTED".equals(action)) {
-                    connected.complete(null);
-                } else if ("QUERY_Y".equals(action)) {
-                    String taskId = message.get("taskId").asText();
-                    String response = "{\"action\":\"RESPONSE_Y\",\"taskId\":\"" + taskId + "\",\"y\":70}";
-                    webSocket.sendText(response, true);
-                } else if ("BUILD".equals(action)) {
-                    builds.add(message);
-                }
-            } catch (RuntimeException e) {
-                connected.completeExceptionally(e);
-            }
         }
 
         @Override
