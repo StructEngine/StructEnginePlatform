@@ -3,6 +3,7 @@ package com.structengine.platform.game.ws;
 import com.structengine.platform.game.protocol.ActionType;
 import com.structengine.platform.game.protocol.GameMessage;
 import com.structengine.platform.game.protocol.GameMessageCodec;
+import com.structengine.platform.game.service.BuildTaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -29,10 +30,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
     private final GameServerRegistry registry;
     private final GameMessageCodec codec;
+    private final BuildTaskService taskService;
 
-    public GameWebSocketHandler(GameServerRegistry registry, GameMessageCodec codec) {
+    public GameWebSocketHandler(GameServerRegistry registry, GameMessageCodec codec,
+                                BuildTaskService taskService) {
         this.registry = registry;
         this.codec = codec;
+        this.taskService = taskService;
     }
 
     @Override
@@ -65,7 +69,22 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         }
 
         switch (action) {
+            case HELLO -> handleHello(serverId, decoded);
+            case PLAYER_LIST -> handlePlayerList(serverId, decoded);
             case RESPONSE_Y -> handleResponseY(serverId, decoded);
+            case BUILD_STATUS -> {
+                if (decoded.taskId() != null && decoded.state() != null) {
+                    taskService.status(decoded.taskId(), decoded.state(),
+                            decoded.placed() == null ? 0 : decoded.placed(),
+                            decoded.total() == null ? 0 : decoded.total(),
+                            decoded.message());
+                }
+            }
+            case HISTORY_RESPONSE -> {
+                if (decoded.requestId() != null) {
+                    registry.completeHistory(decoded.requestId(), decoded.history());
+                }
+            }
             case ERROR -> handleRemoteError(serverId, decoded);
             case PING -> send(serverId, GameMessage.pong());
             case CONNECTED, PONG -> {
@@ -73,6 +92,25 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             }
             default -> log.debug("游戏服 {} 发送了 Platform 侧不处理的消息: {}", serverId, action);
         }
+    }
+
+    private void handleHello(String serverId, GameMessage message) {
+        if (message.serverId() != null && !message.serverId().equals(serverId)) {
+            log.warn("游戏服 {} HELLO 中的 serverId={} 与握手参数不一致", serverId, message.serverId());
+            return;
+        }
+        registry.updateHello(serverId, message.serverName(), message.blueMapUrl(), message.mapId());
+        if (message.players() != null) {
+            registry.updatePlayers(serverId, message.players(), true);
+        }
+        log.info("游戏服 {} HELLO name={} blueMap={} map={} protocol={}",
+                serverId, message.serverName(), message.blueMapUrl(), message.mapId(), message.protocolVersion());
+    }
+
+    private void handlePlayerList(String serverId, GameMessage message) {
+        registry.updatePlayers(serverId, message.players(), Boolean.TRUE.equals(message.full()));
+        log.info("游戏服 {} 玩家列表更新 full={} count={}",
+                serverId, message.full(), message.players() == null ? 0 : message.players().size());
     }
 
     private void handleResponseY(String serverId, GameMessage message) {

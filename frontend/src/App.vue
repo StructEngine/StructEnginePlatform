@@ -1,29 +1,29 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import GeneratePage from './views/GeneratePage.vue'
-import MapBuildPage from './views/MapBuildPage.vue'
+import BuildStudioPage from './views/BuildStudioPage.vue'
 
-const route = ref('studio')
+const route = ref('build')
 
 const titles = {
+  build: {
+    title: 'StructEngine AI 地图建造',
+    subtitle: 'BlueMap 选点 · 玩家选择 · AI 模型生成 · 部署与回滚',
+  },
   studio: {
     title: 'StructEngine 像素三视图转换器',
     subtitle: '上传像素化三视图，生成 Minecraft 体素模型',
-  },
-  map: {
-    title: 'StructEngine 地图选点建造',
-    subtitle: 'Squaremap 选点 · WebSocket 高度探测 · AI 模型下发',
   },
 }
 
 const current = computed(() => titles[route.value] || titles.studio)
 
 function syncRoute() {
-  route.value = window.location.hash.startsWith('#/map') ? 'map' : 'studio'
+  route.value = window.location.hash.startsWith('#/studio') ? 'studio' : 'build'
 }
 
 function navigate(name) {
-  window.location.hash = name === 'map' ? '#/map' : '#/studio'
+  window.location.hash = name === 'studio' ? '#/studio' : '#/build'
 }
 
 onMounted(() => {
@@ -45,23 +45,23 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="nav-item"
+          :class="{ 'is-active': route === 'build' }"
+          @click="navigate('build')"
+        >
+          AI 地图建造
+        </button>
+        <button
+          type="button"
+          class="nav-item"
           :class="{ 'is-active': route === 'studio' }"
           @click="navigate('studio')"
         >
           三视图建模
         </button>
-        <button
-          type="button"
-          class="nav-item"
-          :class="{ 'is-active': route === 'map' }"
-          @click="navigate('map')"
-        >
-          地图选点建造
-        </button>
       </nav>
     </header>
-    <main class="app-main" :class="{ 'app-main-wide': route === 'map' }">
-      <MapBuildPage v-if="route === 'map'" />
+    <main class="app-main" :class="{ 'app-main-wide': route === 'build' }">
+      <BuildStudioPage v-if="route === 'build'" />
       <GeneratePage v-else />
     </main>
   </div>

@@ -44,6 +44,12 @@ public class AppProperties {
     /** 对外基础地址（如 https://build.example.com）；为空则按请求 Host 推导。 */
     private String publicBaseUrl = "";
 
+    /** 单管理员登录密码；生产环境必须覆盖。 */
+    private String adminPassword = "change-me";
+
+    /** 一次生成允许的最大方块数。 */
+    private int maxModelBlocks = 20000;
+
     public String getAiApiUrl() {
         return aiApiUrl;
     }
@@ -122,6 +128,22 @@ public class AppProperties {
 
     public void setPublicBaseUrl(String publicBaseUrl) {
         this.publicBaseUrl = publicBaseUrl;
+    }
+
+    public String getAdminPassword() {
+        return adminPassword;
+    }
+
+    public void setAdminPassword(String adminPassword) {
+        this.adminPassword = adminPassword;
+    }
+
+    public int getMaxModelBlocks() {
+        return maxModelBlocks;
+    }
+
+    public void setMaxModelBlocks(int maxModelBlocks) {
+        this.maxModelBlocks = maxModelBlocks;
     }
 
     /**

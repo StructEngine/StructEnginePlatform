@@ -73,7 +73,7 @@ public class MapBuildService {
         fileStorage.saveModel(taskId, model.serialize());
 
         String modelUrl = joinBaseUrl(baseUrl, "/models/" + taskId + ".json");
-        GameMessage build = GameMessage.build(taskId, playerName, x, y, z, modelUrl);
+        GameMessage build = GameMessage.build(taskId, null, playerName, x, y, z, modelUrl, taskId, 0);
         if (!registry.send(serverId, build)) {
             throw new BusinessException(ErrorCode.GAME_SERVER_UNAVAILABLE,
                     "游戏服务器 " + serverId + " 在构建指令下发前断开");

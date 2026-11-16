@@ -18,11 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 地图选点构建接口：
- * <ul>
- *   <li>{@code GET /api/map/servers}：已连接游戏服列表；</li>
- *   <li>{@code POST /api/map/build}：查询 Y、生成模型并下发 BUILD（请求线程为虚拟线程）。</li>
- * </ul>
+ * 地图选点构建接口（旧版，协议 v2 迁移完成后由新的 /api/game/* 接口替代）。
  */
 @RestController
 @RequestMapping("/api/map")
@@ -42,10 +38,7 @@ public class MapBuildController {
 
     @GetMapping("/servers")
     public ApiResponse<List<GameServerInfo>> servers() {
-        List<GameServerInfo> servers = registry.serverIds().stream()
-                .map(GameServerInfo::new)
-                .toList();
-        return ApiResponse.ok(servers);
+        return ApiResponse.ok(registry.serverInfos());
     }
 
     @PostMapping("/build")

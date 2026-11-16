@@ -46,7 +46,7 @@ class GameMessageCodecTest {
 
     @Test
     void buildMessageCarriesFullCoordinatesAndUrl() {
-        String json = codec.encode(GameMessage.build("t", "Alex", 1, 65, -3, "http://x/m.json"));
+        String json = codec.encode(GameMessage.build("t", "uuid-alex", "Alex", 1, 65, -3, "http://x/m.json", "小屋", 0));
         assertTrue(json.contains("\"playerName\":\"Alex\""));
         assertTrue(json.contains("\"y\":65"));
         assertTrue(json.contains("\"modelUrl\":\"http://x/m.json\""));
