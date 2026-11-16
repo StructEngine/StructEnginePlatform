@@ -7,24 +7,24 @@ StructEngine 的云端控制面：管理多个 Minecraft 游戏服、BlueMap 地
 ```text
 浏览器
   ├─ 管理台 /api（Spring Boot）
-  └─ BlueMap iframe（每个 MCS 自带 BlueMap 5.16）
+  └─ BlueMap iframe（每个 Minecraft Server 自带 BlueMap 5.16）
         │ postMessage 选点
         ▼
 StructEnginePlatform
-  ├─ WebSocket /ws/game  ← 多个 MCS 插件（协议 v2）
+  ├─ WebSocket /ws/game  ← 多个 Minecraft Server 插件（协议 v2）
   ├─ Spring AI → OpenAI-compatible 上游
   ├─ SQLite（模型、任务、对话）
   └─ data/models/*.json（外网可访问）
         ▲
         │ BUILD / ROLLBACK / REDO
-MCS 插件 ── 原有分批构建 / 回滚 / 恢复核心
+Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 ```
 
 ### 关键流程
 
-1. MCS 插件通过 `ws://platform:8080/ws/game?serverId=...` 连接 Platform。
+1. Minecraft Server 插件通过 `ws://platform:8080/ws/game?serverId=...` 连接 Platform。
 2. 插件发送 `HELLO`（serverId、serverName、BlueMap URL、mapId、协议版本），并每 10 秒/玩家事件时上报 `PLAYER_LIST`。
-3. Web 选择 MCS → 加载该服的 BlueMap 定制页 → 点击选点（建筑中心 X/Z）→ 选择在线/离线玩家。
+3. Web 选择 Minecraft Server → 加载该服的 BlueMap 定制页 → 点击选点（建筑中心 X/Z）→ 选择在线/离线玩家。
 4. 在 AI 对话窗口描述建筑；调用 `/api/models/generate` 生成严格 voxel JSON。
 5. 生成后预览模型，点击部署；Platform 查询地表 Y、计算中心偏移与旋转，落盘部署模型并发送 `BUILD`。
 6. 插件下载模型、按绝对原点入队，使用原有分批构建/快照机制执行，并通过 `BUILD_STATUS` 回报进度。
@@ -48,7 +48,7 @@ MCS 插件 ── 原有分批构建 / 回滚 / 恢复核心
 | `STRUCTENGINE_DATA_DIR` | 数据目录（含 models/images/structengine.db） | `./data` |
 | `STRUCTENGINE_PUBLIC_BASE_URL` | 模型文件对外基础地址；为空按请求 Host 推导 | 空 |
 | `STRUCTENGINE_ADMIN_PASSWORD` | 单管理员登录密码 | `change-me`（生产必须覆盖） |
-| `STRUCTENGINE_GAME_TOKEN` | MCS WebSocket 握手令牌 | 空（生产必须设置） |
+| `STRUCTENGINE_GAME_TOKEN` | Minecraft Server WebSocket 握手令牌 | 空（生产必须设置） |
 | `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件回包的秒数 | `5` |
 | `STRUCTENGINE_AI_BASE_URL` | OpenAI-compatible Base URL | `https://token.dcepstc.com/v1` |
 | `STRUCTENGINE_AI_API_KEY` | AI API Key | 空 |
@@ -106,7 +106,7 @@ http://192.168.1.201:8102/structengine-map.html
 
 ## 游戏服插件配置
 
-在 MCS 启动前设置（以 NeoForge 为例）：
+在 Minecraft Server 启动前设置（以 NeoForge 为例）：
 
 ```bash
 export STRUCTENGINE_WS_URL=ws://192.168.1.201:8080/ws/game
@@ -179,7 +179,7 @@ cp -r frontend/dist dist
 | POST | `/api/tasks/deploy` | 部署模型 |
 | GET | `/api/tasks/{taskId}` | 任务状态 |
 | GET | `/api/tasks?serverId=&playerUuid=` | 玩家任务列表 |
-| GET | `/models/{filename}` | 模型公开分发（MCS 下载） |
+| GET | `/models/{filename}` | 模型公开分发（Minecraft Server 下载） |
 
 除 `/models/**`、`/api/auth/**` 与游戏服 WebSocket 外，API 需要管理员会话。
 
@@ -190,8 +190,8 @@ cp -r frontend/dist dist
 主要消息：
 
 ```text
-MCS -> Platform: HELLO, PLAYER_LIST, RESPONSE_Y, BUILD_STATUS, HISTORY_RESPONSE, ERROR, PING
-Platform -> MCS: QUERY_Y, BUILD, HISTORY_REQUEST, ROLLBACK, REDO, PONG
+Minecraft Server -> Platform: HELLO, PLAYER_LIST, RESPONSE_Y, BUILD_STATUS, HISTORY_RESPONSE, ERROR, PING
+Platform -> Minecraft Server: QUERY_Y, BUILD, HISTORY_REQUEST, ROLLBACK, REDO, PONG
 ```
 
 `BUILD` 包含：
@@ -218,7 +218,7 @@ Platform -> MCS: QUERY_Y, BUILD, HISTORY_REQUEST, ROLLBACK, REDO, PONG
   - `build_task`
   - `chat_message`
 - 模型文件：`{data-dir}/models/{id}.json`
-- 历史快照仍由插件内存保存，MCS 重启后清空（与原有行为一致）。
+- 历史快照仍由插件内存保存，Minecraft Server 重启后清空（与原有行为一致）。
 
 ## 测试
 

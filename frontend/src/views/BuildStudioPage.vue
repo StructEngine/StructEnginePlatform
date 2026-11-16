@@ -399,7 +399,7 @@ onBeforeUnmount(() => {
         show-icon
         :closable="false"
         title="没有已连接的游戏服"
-        description="请确认 MCS 已启动并连接到 Platform。"
+        description="请确认 Minecraft Server 已启动并连接到 Platform。"
       />
 
       <div v-else class="studio-grid">
@@ -492,7 +492,7 @@ onBeforeUnmount(() => {
               <h3>构建历史</h3>
               <el-button size="small" :loading="historyLoading" @click="loadHistory">刷新</el-button>
             </div>
-            <div v-if="history.length === 0" class="hint">暂无历史（历史在 MCS 重启后清空）</div>
+            <div v-if="history.length === 0" class="hint">暂无历史（历史在 Minecraft Server 重启后清空）</div>
             <div v-for="entry in history" :key="entry.historyId" class="history-item">
               <div>
                 <strong>{{ entry.modelName || entry.taskId || entry.historyId }}</strong>
