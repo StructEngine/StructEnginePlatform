@@ -55,7 +55,7 @@ MCS 插件 ── 原有分批构建 / 回滚 / 恢复核心
 | `STRUCTENGINE_MAX_MODEL_BLOCKS` | 单模型最大方块数 | `20000` |
 | `STRUCTENGINE_GOOGLE_STREET_API_KEY` | 可选街景 API Key；不配置不影响启动 | 空 |
 
-> 本地开发把敏感配置写入 `backend/application-local.yml`。该文件已被 `.gitignore` 忽略，不要提交真实 API Key。
+> 本地开发把敏感配置写入 `backend/src/main/resources/application-local.yml`。该文件已被 `.gitignore` 忽略，不要提交真实 API Key。
 >
 > 如果 API Key 曾出现在聊天/日志中，请立即在服务商侧轮换。
 

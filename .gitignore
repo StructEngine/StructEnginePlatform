@@ -39,4 +39,3 @@ __pycache__/
 
 # 本地 AI/管理员配置，不提交
 application-local.yml
-backend/application-local.yml
