@@ -8,7 +8,7 @@ spring:
     virtual:
       enabled: true
   config:
-    import: optional:file:./src/main/resources/application-local.yml,optional:file:./backend/src/main/resources/application-local.yml
+    import: optional:file:${STRUCTENGINE_LOCAL_CONFIG:./src/main/resources/application-local.yml}
   servlet:
     multipart:
       max-file-size: 10MB

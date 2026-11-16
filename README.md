@@ -44,6 +44,7 @@ MCS 插件 ── 原有分批构建 / 回滚 / 恢复核心
 |---|---|---|
 | `STRUCTENGINE_SERVER_PORT` | Platform 监听端口 | `8080` |
 | `STRUCTENGINE_PROJECT_ROOT` | 项目根目录，data/dist 的解析基准 | JVM `user.dir` |
+| `STRUCTENGINE_LOCAL_CONFIG` | 本地敏感覆盖文件路径；默认 `./src/main/resources/application-local.yml` | 见左 |
 | `STRUCTENGINE_DATA_DIR` | 数据目录（含 models/images/structengine.db） | `./data` |
 | `STRUCTENGINE_PUBLIC_BASE_URL` | 模型文件对外基础地址；为空按请求 Host 推导 | 空 |
 | `STRUCTENGINE_ADMIN_PASSWORD` | 单管理员登录密码 | `change-me`（生产必须覆盖） |
@@ -55,7 +56,9 @@ MCS 插件 ── 原有分批构建 / 回滚 / 恢复核心
 | `STRUCTENGINE_MAX_MODEL_BLOCKS` | 单模型最大方块数 | `20000` |
 | `STRUCTENGINE_GOOGLE_STREET_API_KEY` | 可选街景 API Key；不配置不影响启动 | 空 |
 
-> 本地开发把敏感配置写入 `backend/src/main/resources/application-local.yml`。该文件已被 `.gitignore` 忽略，不要提交真实 API Key。
+> 本地开发把敏感配置写入 `backend/src/main/resources/application-local.yml`，并通过
+> `STRUCTENGINE_LOCAL_CONFIG` 指定绝对/相对路径；默认值为 `./src/main/resources/application-local.yml`。
+> 该文件已被 `.gitignore` 忽略，并且通过 Maven `resources` 排除，不会进入 Jar。
 >
 > 如果 API Key 曾出现在聊天/日志中，请立即在服务商侧轮换。
 
