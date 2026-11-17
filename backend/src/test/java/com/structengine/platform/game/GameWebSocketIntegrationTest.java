@@ -148,6 +148,25 @@ class GameWebSocketIntegrationTest {
     }
 
     @Test
+    void exposesCaptchaAndProtectsMe() throws Exception {
+        HttpClient web = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+
+        HttpResponse<String> captcha = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/auth/captcha"))
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, captcha.statusCode(), captcha.body());
+        assertTrue(captcha.body().contains("captchaId"), captcha.body());
+        assertTrue(captcha.body().contains("data:image/png;base64,"), captcha.body());
+
+        HttpResponse<String> me = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/auth/me"))
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(401, me.statusCode(), me.body());
+    }
+
+    @Test
     void enforcesAdminOnlyAccessForRegisteredUser() throws Exception {
         long userId = idGenerator.nextId();
         long now = System.currentTimeMillis();
