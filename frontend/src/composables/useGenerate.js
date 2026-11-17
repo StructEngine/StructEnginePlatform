@@ -1,10 +1,10 @@
 import { ref } from 'vue'
-import { generateModel, fetchModel, GenerateError, NETWORK_ERROR } from '../api/generate'
+import { generateFromImages, fetchModel, GenerateError, NETWORK_ERROR } from '../api/generate.js'
 import { parseVoxelData } from '../three/parseVoxelData'
 
 const MAX_IMAGES = 3
 
-export function useGenerate() {
+export function useGenerate(serverId = '') {
   const fileList = ref([])
   const description = ref('')
   const loading = ref(false)
@@ -33,20 +33,14 @@ export function useGenerate() {
     previewError.value = ''
     loading.value = true
     try {
-      const jsonUrl = await generateModel(fileList.value, description.value)
-      result.value = jsonUrl
-
-      previewLoading.value = true
-      try {
-        const raw = await fetchModel(jsonUrl)
-        const parsed = parseVoxelData(raw)
-        voxels.value = parsed.blocks
-      } catch (e) {
-        voxels.value = null
-        previewError.value = '预览数据加载失败'
-      } finally {
-        previewLoading.value = false
+      if (!serverId) {
+        throw new GenerateError('请从服务器详情进入参考图生成')
       }
+      const data = await generateFromImages(serverId, fileList.value, description.value)
+      result.value = data.modelUrl
+      voxels.value = data.blocks && data.blocks.length > 0
+        ? parseVoxelData(data.blocks).blocks
+        : parseVoxelData(await fetchModel(data.modelUrl)).blocks
     } catch (e) {
       error.value = e instanceof GenerateError ? e.message : NETWORK_ERROR
     } finally {

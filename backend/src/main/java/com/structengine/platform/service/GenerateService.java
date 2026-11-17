@@ -1,15 +1,18 @@
 package com.structengine.platform.service;
 
+import com.structengine.platform.ai.VisionAiService;
 import com.structengine.platform.common.BusinessException;
 import com.structengine.platform.common.ErrorCode;
 import com.structengine.platform.config.AppProperties;
 import com.structengine.platform.domain.ModelData;
-import com.structengine.platform.domain.Task;
 import com.structengine.platform.domain.VoxelBlock;
+import com.structengine.platform.id.SnowflakeIdGenerator;
 import com.structengine.platform.llm.ImageMimeType;
 import com.structengine.platform.llm.JsonSanitizer;
-import com.structengine.platform.llm.LlmClient;
 import com.structengine.platform.llm.PromptProvider;
+import com.structengine.platform.model.ModelArtifact;
+import com.structengine.platform.model.ModelArtifactService;
+import com.structengine.platform.model.ModelDraft;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -18,9 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 参考图转换主流程编排：校验 → 落盘原图 → 多模态推理 → 清洗 → 校验 → 落盘模型 → 返回 json_url。
- *
- * <p>三视图只是推荐输入，1~3 张参考图均可提交；不足三视图时由多模态模型推断补全。</p>
+ * 参考图生成编排：校验 → 落盘原图 → Spring AI 多模态 → 清洗 → 登记模型产物。
  */
 @Service
 public class GenerateService {
@@ -29,22 +30,29 @@ public class GenerateService {
     private static final int MAX_DESCRIPTION_LENGTH = 1000;
 
     private final AppProperties props;
-    private final LlmClient llmClient;
+    private final VisionAiService visionAiService;
     private final JsonSanitizer sanitizer;
     private final FileStorageService fileStorage;
+    private final ModelArtifactService modelService;
+    private final SnowflakeIdGenerator idGenerator;
 
-    public GenerateService(AppProperties props, LlmClient llmClient,
-                           JsonSanitizer sanitizer, FileStorageService fileStorage) {
+    public GenerateService(AppProperties props, VisionAiService visionAiService,
+                           JsonSanitizer sanitizer, FileStorageService fileStorage,
+                           ModelArtifactService modelService, SnowflakeIdGenerator idGenerator) {
         this.props = props;
-        this.llmClient = llmClient;
+        this.visionAiService = visionAiService;
         this.sanitizer = sanitizer;
         this.fileStorage = fileStorage;
+        this.modelService = modelService;
+        this.idGenerator = idGenerator;
     }
 
-    public String generate(MultipartFile[] images, String description, String host) {
-        Task task = new Task();
+    public ModelDraft generate(long ownerUserId, long serverId, MultipartFile[] images,
+                               String description, String baseUrl) {
         validateImageCount(images);
         String extraDescription = normalizeDescription(description);
+        long modelId = idGenerator.nextId();
+        String modelIdText = Long.toString(modelId);
 
         List<byte[]> imageBytes = new ArrayList<>(images.length);
         for (MultipartFile image : images) {
@@ -64,19 +72,18 @@ public class GenerateService {
         }
 
         for (int i = 0; i < imageBytes.size(); i++) {
-            fileStorage.saveImage(task.id(), i, imageBytes.get(i));
+            fileStorage.saveImage(modelIdText, i, imageBytes.get(i));
         }
 
         String instruction = PromptProvider.userInstruction(
                 imageBytes.size(), extraDescription, props.getMaxModelBlocks());
-        String raw = llmClient.generate(imageBytes.toArray(new byte[0][]), instruction);
+        String raw = visionAiService.generate(imageBytes.toArray(new byte[0][]), instruction);
 
         List<VoxelBlock> blocks = sanitizer.sanitize(raw);
         if (blocks.size() > props.getMaxModelBlocks()) {
             throw new BusinessException(ErrorCode.UNPROCESSABLE,
                     "模型方块数超过限制 " + props.getMaxModelBlocks());
         }
-
         ModelData model = new ModelData(blocks);
         try {
             model.validate();
@@ -85,9 +92,12 @@ public class GenerateService {
         }
 
         String payload = model.serialize();
-        fileStorage.saveModel(task.id(), payload);
-
-        return "http://" + host + "/models/" + task.modelPath();
+        fileStorage.saveModel(modelIdText, payload);
+        String modelUrl = join(baseUrl, "/models/" + modelIdText + ".json");
+        ModelArtifact artifact = modelService.create(modelId, ownerUserId, serverId,
+                "REFERENCE_IMAGE", extraDescription.isBlank() ? null : extraDescription,
+                modelUrl, blocks);
+        return new ModelDraft(artifact, blocks);
     }
 
     private void validateImageCount(MultipartFile[] images) {
@@ -108,5 +118,13 @@ public class GenerateService {
                     "补充说明不能超过 " + MAX_DESCRIPTION_LENGTH + " 字");
         }
         return value;
+    }
+
+    private static String join(String base, String path) {
+        String value = base == null ? "" : base.trim();
+        while (value.endsWith("/")) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return value + path;
     }
 }

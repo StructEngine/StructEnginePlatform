@@ -42,9 +42,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 协议 v2 端到端验证：真实 WebSocket、HELLO、玩家列表、管理员会话与历史查询。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "structengine.ai-api-url=http://localhost:1",
-        "structengine.ai-api-key=test",
-        "structengine.ai-model=test-model",
+        "spring.ai.openai.base-url=http://localhost:1",
+        "spring.ai.openai.api-key=test",
+        "spring.ai.openai.chat.options.model=test-model",
         "structengine.jwt-secret=integration-test-secret-key-0123456789abcdef",
         "structengine.admin-initial-password=admin-test"
 })
@@ -218,15 +218,6 @@ class GameWebSocketIntegrationTest {
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(200, servers.statusCode(), servers.body());
 
-        HttpResponse<String> business = web.send(HttpRequest.newBuilder(
-                        URI.create("http://localhost:" + port + "/api/ai/chat"))
-                        .header("Authorization", "Bearer " + userToken)
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"hi\"}"))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
-        assertEquals(403, business.statusCode(), business.body());
-
         HttpResponse<String> created = web.send(HttpRequest.newBuilder(
                         URI.create("http://localhost:" + port + "/api/servers"))
                         .header("Authorization", "Bearer " + userToken)
@@ -248,6 +239,14 @@ class GameWebSocketIntegrationTest {
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(200, ownDetail.statusCode(), ownDetail.body());
         assertTrue(ownDetail.body().contains("\"serverName\":\"UserA Server\""), ownDetail.body());
+
+        HttpResponse<String> models = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers/" + serverId + "/models"))
+                        .header("Authorization", "Bearer " + userToken)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, models.statusCode(), models.body());
+        assertTrue(models.body().contains("\"items\":[]"), models.body());
 
         long otherId = idGenerator.nextId();
         userAccountRepository.insert(new AppUser(otherId, "UserB", "unused-hash",

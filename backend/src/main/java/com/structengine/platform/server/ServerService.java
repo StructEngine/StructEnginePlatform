@@ -135,7 +135,7 @@ public class ServerService {
         return toInfo(server);
     }
 
-    private MinecraftServer requireAccessible(AuthPrincipal principal, long serverId) {
+    public MinecraftServer requireAccessible(AuthPrincipal principal, long serverId) {
         MinecraftServer server = repository.findById(serverId)
                 .filter(value -> !value.deleted())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "服务器不存在"));

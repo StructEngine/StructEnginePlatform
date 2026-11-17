@@ -25,14 +25,15 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 1. 用户在“服务器管理”创建服务器，平台生成一次性 secret；插件用 `STRUCTENGINE_PLATFORM_URL + STRUCTENGINE_SERVER_SECRET` 连接 Platform。
 2. 插件握手携带 `X-StructEngine-Secret`，发送 `HELLO`（serverName、BlueMap URL、mapId、secret、协议版本 3），并每 10 秒/玩家事件时上报 `PLAYER_LIST`。
 3. Web 选择 Minecraft Server → 加载该服的 BlueMap 定制页 → 点击选点（建筑中心 X/Z）→ 选择在线/离线玩家。
-4. 在 AI 对话窗口描述建筑；调用 `/api/models/generate` 生成严格 voxel JSON。
-5. 生成后预览模型，点击部署；Platform 查询地表 Y、计算中心偏移与旋转，落盘部署模型并发送 `BUILD`。
+4. 在服务器详情 → “AI 地图建造”中描述建筑；调用 `/api/servers/{serverId}/models/generate` 生成严格 voxel JSON 并登记模型产物。
+5. 预览模型后调用 `/api/servers/{serverId}/tasks/deploy`；Platform 查询地表 Y、计算中心偏移与旋转，落盘部署模型并发送 `BUILD`。
 6. 插件下载模型、按绝对原点入队，使用原有分批构建/快照机制执行，并通过 `BUILD_STATUS` 回报进度。
 7. Web 通过 `/api/servers/{serverId}/history` 查看插件历史，调用 rollback/redo。
 
 ## 技术栈
 
 - 后端：Java 21、Spring Boot 4、Spring Security + JWT、Spring WebSocket、Spring AI、SQLite JDBC
+- AI：统一 `spring.ai.openai.*` 配置；地图 AI 对话与参考图多模态共用同一套 Spring AI 接入
 - 前端：Vue 3、Vue Router、Element Plus、Three.js 模型预览
 - 地图：BlueMap 5.16（Paper/Fabric/NeoForge 对应版本）
 - 存储：SQLite + 本地模型文件（`data/models`）
@@ -163,19 +164,15 @@ cp -r frontend/dist dist
 1. 打开 `http://192.168.1.201:8080/`，使用 `admin` + 初始密码登录；首次登录会要求改密。
 2. 管理员可在“用户管理”中创建/禁用/重置/删除普通用户。
 3. 普通用户登录后进入“服务器管理”，创建服务器；平台只显示一次 secret，把它配置到该服的 StructEngine 插件。
-4. 插件连接成功后服务器状态变为在线，管理员可在“服务器管理”中看到 BlueMap、玩家和在线状态。
-5. 管理员切换到“AI 地图建造”页，选择游戏服。
-6. 在 BlueMap 地图点击选择建筑中心。
-7. 选择在线玩家，或切换到离线玩家输入名称/UUID。
-8. 在 AI 对话窗口讨论方案；填写模型描述。
-9. 点击“生成模型”，等待模型预览。
-10. 选择朝向（南/东/北/西/朝向玩家），点击“部署到 ...”。
-11. 在任务状态中查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`。
-12. 在构建历史中执行回滚/恢复。
+4. 插件连接成功后服务器状态变为在线；打开服务器详情可看到 BlueMap、玩家和在线状态。
+5. 在服务器详情中使用“AI 地图建造”“参考图生成”“模型产物”“构建任务”四个 tab。
+6. AI 地图建造：在 BlueMap 地图点击选择建筑中心 → 选择玩家 → 填写描述/AI 对话 → 生成模型 → 预览 → 部署。
+7. 部署后在“构建任务”查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`；构建历史中可回滚/恢复。
+8. 参考图生成：上传 1~3 张参考图 + 可选说明，生成后模型直接进入该服务器的“模型产物”。
 
 ### 参考图建模（三视图仅为建议）
 
-管理员在顶部导航切换到“参考图生成”页（普通用户暂不可用）：
+在服务器详情 → “参考图生成” tab：
 
 - 上传 **1~3 张参考图**即可。正视图、侧视图、俯视图只是推荐输入，不要求齐全。
 - 参考图不足三视图时也可以直接提交：后端会把图片与可选补充说明发送给多模态模型，由模型推断缺失的进深、侧面和屋顶，补全为完整建筑。
@@ -186,7 +183,7 @@ cp -r frontend/dist dist
 curl -H "Authorization: Bearer $TOKEN" \
   -F "images=@front.png" -F "images=@side.png" \
   -F "description=两层石砖小屋，红色木屋顶，正面开门" \
-  http://192.168.1.201:8080/api/generate
+  http://192.168.1.201:8080/api/servers/{serverId}/models/generate-from-images
 ```
 
 ## HTTP API
@@ -214,13 +211,19 @@ curl -H "Authorization: Bearer $TOKEN" \
 | GET | `/api/servers/{serverId}/history` | 查询玩家构建历史（当前仅管理员） |
 | POST | `/api/servers/{serverId}/rollback` | 回滚指定历史 |
 | POST | `/api/servers/{serverId}/redo` | 恢复指定历史 |
-| POST | `/api/ai/chat` | AI 对话 |
-| GET | `/api/ai/chat/{sessionId}` | 对话历史 |
-| POST | `/api/models/generate` | 对话描述生成模型 |
-| POST | `/api/generate` | 参考图（1~3 张）+ 可选 `description` 生成体素模型 |
-| POST | `/api/tasks/deploy` | 部署模型 |
-| GET | `/api/tasks/{taskId}` | 任务状态 |
-| GET | `/api/tasks?serverId=&playerUuid=` | 玩家任务列表 |
+| POST | `/api/servers/{id}/ai/chat` | 服务器上下文 AI 对话 |
+| GET | `/api/servers/{id}/ai/chat/{sessionId}` | 对话历史 |
+| POST | `/api/servers/{id}/models/generate` | 描述生成模型（地图 AI） |
+| POST | `/api/servers/{id}/models/generate-from-images` | 参考图生成模型 |
+| GET | `/api/servers/{id}/models` | 服务器模型产物列表 |
+| DELETE | `/api/servers/{id}/models/{modelId}` | 软删除模型 |
+| POST | `/api/servers/{id}/tasks/deploy` | 部署模型 |
+| GET | `/api/servers/{id}/tasks` | 服务器任务列表 |
+| GET | `/api/servers/{id}/tasks/{taskId}` | 任务状态 |
+| GET | `/api/servers/{id}/history` | 插件构建历史 |
+| POST | `/api/servers/{id}/history/{historyId}/rollback` | 回滚 |
+| POST | `/api/servers/{id}/history/{historyId}/redo` | 恢复 |
+| GET | `/api/admin/models` | 管理员查看全部模型 |
 | GET | `/models/{filename}` | 模型公开分发（Minecraft Server 下载） |
 
 除 `/models/**`、`/api/auth/captcha`、`/api/auth/register`、`/api/auth/login` 与游戏服 WebSocket 外，API 需要 JWT；`/api/admin/**` 与当前阶段业务接口要求 `ROLE_ADMIN`。
@@ -262,7 +265,7 @@ Platform -> Minecraft Server: CONNECTED, QUERY_Y, BUILD, HISTORY_REQUEST,
   - `admin_account`（超级管理员）
   - `app_user`（Minecraft 服主）
   - `minecraft_server`（服务器归属与 secret 哈希）
-  - `model_draft`
+  - `model_artifact`（模型产物与归属）
   - `build_task`
   - `chat_message`
 - 模型文件：`{data-dir}/models/{id}.json`
@@ -280,6 +283,6 @@ npm run build
 ```
 
 测试包含：
-- 后端 102 项：Snowflake、JWT、验证码、认证/管理员用户、服务器归属/secret、WebSocket v3/玩家列表/历史 RPC、模型清洗与文件存储等；
+- 后端 104 项：Snowflake、JWT、验证码、认证/管理员用户、服务器归属/secret、WebSocket v3/玩家列表/历史 RPC、模型清洗与文件存储等；
 - 前端 11 项：参考图 API、体素解析；
-- 真机 RCON 验收脚本仍使用旧 `/api/map/*`，Phase 2 会随服务器/部署接口调整。
+- 真机 RCON 验收脚本仍使用旧 `/api/map/*`，待 Phase 4 更新为服务器上下文接口。

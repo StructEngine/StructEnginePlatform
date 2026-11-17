@@ -4,7 +4,11 @@ import GuideSection from '../components/GuideSection.vue'
 import UploadPanel from '../components/UploadPanel.vue'
 import ResultPanel from '../components/ResultPanel.vue'
 
-const { fileList, description, loading, result, error, voxels, submit } = useGenerate()
+const props = defineProps({
+  serverId: { type: String, default: '' },
+})
+
+const { fileList, description, loading, result, error, voxels, submit } = useGenerate(props.serverId)
 
 function handleFilesChange(files) {
   fileList.value = files

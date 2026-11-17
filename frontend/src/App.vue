@@ -9,7 +9,7 @@ const auth = useAuth()
 
 const isAuthPage = computed(() => Boolean(route.meta.public))
 const showNav = computed(() => Boolean(auth.state.user) && !isAuthPage.value)
-const wide = computed(() => route.path === '/build')
+const wide = computed(() => route.name === 'server-detail' || route.path === '/admin/users')
 const title = computed(() => route.meta.title || 'StructEngine')
 const subtitle = computed(() => route.meta.subtitle || '')
 
@@ -21,15 +21,14 @@ const navItems = computed(() => {
     return [
       { path: '/admin/users', label: '用户管理' },
       { path: '/servers', label: '服务器管理' },
-      { path: '/build', label: 'AI 地图建造' },
-      { path: '/studio', label: '参考图生成' },
+      { path: '/admin/models', label: '全部模型' },
     ]
   }
   return [{ path: '/servers', label: '我的服务器' }]
 })
 
 function isActive(path) {
-  return route.path === path
+  return route.path === path || (path === '/servers' && route.path.startsWith('/servers/'))
 }
 
 function logout() {

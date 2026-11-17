@@ -18,7 +18,7 @@ export class GenerateError extends Error {
   }
 }
 
-export async function generateModel(files, description = '') {
+export async function generateFromImages(serverId, files, description = '') {
   const formData = new FormData()
   for (const file of files) {
     formData.append('images', file)
@@ -29,14 +29,14 @@ export async function generateModel(files, description = '') {
   }
 
   try {
-    const data = await request('/api/generate', {
+    const data = await request(`/api/servers/${encodeURIComponent(serverId)}/models/generate-from-images`, {
       method: 'POST',
       body: formData,
     })
-    if (!data || !data.json_url) {
+    if (!data || !data.modelUrl) {
       throw new GenerateError(NETWORK_ERROR)
     }
-    return data.json_url
+    return data
   } catch (e) {
     if (e instanceof GenerateError) {
       throw e

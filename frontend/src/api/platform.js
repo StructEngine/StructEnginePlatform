@@ -46,33 +46,42 @@ export function deleteServer(serverId) {
   return api(`/servers/${encodeURIComponent(serverId)}`, { method: 'DELETE' })
 }
 
-export function sendChat({ sessionId, message }) {
-  return api('/ai/chat', {
+export function sendChat(serverId, { sessionId, message }) {
+  return api(`/servers/${encodeURIComponent(serverId)}/ai/chat`, {
     method: 'POST',
     body: JSON.stringify({ sessionId, message }),
   })
 }
 
-export function chatHistory(sessionId) {
-  return api(`/ai/chat/${encodeURIComponent(sessionId)}`)
+export function chatHistory(serverId, sessionId) {
+  return api(`/servers/${encodeURIComponent(serverId)}/ai/chat/${encodeURIComponent(sessionId)}`)
 }
 
-export function generateModel({ serverId, playerUuid, playerName, prompt }) {
-  return api('/models/generate', {
+export function generateModel(serverId, { prompt }) {
+  return api(`/servers/${encodeURIComponent(serverId)}/models/generate`, {
     method: 'POST',
-    body: JSON.stringify({ serverId, playerUuid, playerName, prompt }),
+    body: JSON.stringify({ prompt }),
   })
 }
 
-export function deployModel({ serverId, playerUuid, playerName, modelId, centerX, centerZ, rotation }) {
-  return api('/tasks/deploy', {
+export function deployModel(serverId, { playerUuid, playerName, modelId, centerX, centerZ, rotation }) {
+  return api(`/servers/${encodeURIComponent(serverId)}/tasks/deploy`, {
     method: 'POST',
-    body: JSON.stringify({ serverId, playerUuid, playerName, modelId, centerX, centerZ, rotation }),
+    body: JSON.stringify({ playerUuid, playerName, modelId, centerX, centerZ, rotation }),
   })
 }
 
-export function getTask(taskId) {
-  return api(`/tasks/${encodeURIComponent(taskId)}`)
+export function getTask(serverId, taskId) {
+  return api(`/servers/${encodeURIComponent(serverId)}/tasks/${encodeURIComponent(taskId)}`)
+}
+
+export function listServerTasks(serverId, playerUuid = '') {
+  const params = new URLSearchParams()
+  if (playerUuid) {
+    params.set('playerUuid', playerUuid)
+  }
+  const suffix = params.toString() ? `?${params}` : ''
+  return api(`/servers/${encodeURIComponent(serverId)}/tasks${suffix}`)
 }
 
 export function listHistory(serverId, playerUuid, playerName) {
@@ -80,18 +89,40 @@ export function listHistory(serverId, playerUuid, playerName) {
   return api(`/servers/${encodeURIComponent(serverId)}/history?${params}`)
 }
 
-export function rollback(serverId, { playerUuid, playerName, historyId }) {
-  return api(`/servers/${encodeURIComponent(serverId)}/rollback`, {
+export function rollback(serverId, historyId, { playerUuid, playerName }) {
+  return api(`/servers/${encodeURIComponent(serverId)}/history/${encodeURIComponent(historyId)}/rollback`, {
     method: 'POST',
-    body: JSON.stringify({ playerUuid, playerName, historyId }),
+    body: JSON.stringify({ playerUuid, playerName }),
   })
 }
 
-export function redo(serverId, { playerUuid, playerName, historyId }) {
-  return api(`/servers/${encodeURIComponent(serverId)}/redo`, {
+export function redo(serverId, historyId, { playerUuid, playerName }) {
+  return api(`/servers/${encodeURIComponent(serverId)}/history/${encodeURIComponent(historyId)}/redo`, {
     method: 'POST',
-    body: JSON.stringify({ playerUuid, playerName, historyId }),
+    body: JSON.stringify({ playerUuid, playerName }),
   })
+}
+
+export function listServerModels(serverId, { page = 1, size = 20, source = '' } = {}) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (source) {
+    params.set('source', source)
+  }
+  return api(`/servers/${encodeURIComponent(serverId)}/models?${params}`)
+}
+
+export function deleteServerModel(serverId, modelId) {
+  return api(`/servers/${encodeURIComponent(serverId)}/models/${encodeURIComponent(modelId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function listAdminModels({ page = 1, size = 20, source = '' } = {}) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (source) {
+    params.set('source', source)
+  }
+  return api(`/admin/models?${params}`)
 }
 
 export function me() {

@@ -15,15 +15,6 @@ import java.nio.file.Path;
 @Validated
 public class AppProperties {
 
-    @NotBlank
-    private String aiApiUrl;
-
-    @NotBlank
-    private String aiApiKey;
-
-    @NotBlank
-    private String aiModel;
-
     /** 项目根目录；为空时回退到 JVM 的 user.dir。 */
     private String projectRoot = "";
 
@@ -60,30 +51,6 @@ public class AppProperties {
 
     /** 一次生成允许的最大方块数。 */
     private int maxModelBlocks = 20000;
-
-    public String getAiApiUrl() {
-        return aiApiUrl;
-    }
-
-    public void setAiApiUrl(String aiApiUrl) {
-        this.aiApiUrl = aiApiUrl;
-    }
-
-    public String getAiApiKey() {
-        return aiApiKey;
-    }
-
-    public void setAiApiKey(String aiApiKey) {
-        this.aiApiKey = aiApiKey;
-    }
-
-    public String getAiModel() {
-        return aiModel;
-    }
-
-    public void setAiModel(String aiModel) {
-        this.aiModel = aiModel;
-    }
 
     public String getProjectRoot() {
         return projectRoot;

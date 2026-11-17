@@ -226,7 +226,9 @@ onMounted(load)
     <el-table v-loading="loading" :data="servers" border class="server-table">
       <el-table-column label="服务器" min-width="180">
         <template #default="{ row }">
-          <div class="server-name">{{ row.serverName }}</div>
+          <router-link :to="`/servers/${row.serverId}`" class="server-name server-name-link">
+            {{ row.serverName }}
+          </router-link>
           <div class="server-id">{{ row.serverId }}</div>
         </template>
       </el-table-column>
@@ -266,11 +268,7 @@ onMounted(load)
             {{ row.status === 'DISABLED' ? '启用' : '禁用' }}
           </el-button>
           <el-button size="small" type="danger" plain @click="remove(row)">删除</el-button>
-          <template v-if="isAdmin">
-            <router-link :to="`/build?serverId=${row.serverId}`" class="action-link">
-              地图建造
-            </router-link>
-          </template>
+          <router-link :to="`/servers/${row.serverId}`" class="action-link">详情</router-link>
         </template>
       </el-table-column>
     </el-table>
@@ -366,6 +364,15 @@ STRUCTENGINE_SERVER_SECRET={{ secretInfo.secret }}</pre>
 
 .server-name {
   font-weight: 600;
+}
+
+.server-name-link {
+  color: var(--rc-text);
+  text-decoration: none;
+}
+
+.server-name-link:hover {
+  color: var(--el-color-primary);
 }
 
 .server-id,

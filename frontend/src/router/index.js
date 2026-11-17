@@ -27,30 +27,22 @@ const routes = [
     meta: { title: '服务器管理', subtitle: '创建服务器、获取 secret、管理插件注册与在线状态' },
   },
   {
+    path: '/servers/:serverId',
+    name: 'server-detail',
+    component: () => import('../views/ServerDetailPage.vue'),
+    meta: { title: '服务器详情', subtitle: 'AI 地图建造、参考图生成、模型产物与构建任务' },
+  },
+  {
     path: '/admin/users',
     name: 'admin-users',
     component: () => import('../views/AdminUsersPage.vue'),
     meta: { admin: true, title: '用户管理', subtitle: '管理员账号与 Minecraft 服主账号' },
   },
   {
-    path: '/build',
-    name: 'build',
-    component: () => import('../views/BuildStudioPage.vue'),
-    meta: {
-      admin: true,
-      title: 'StructEngine AI 地图建造',
-      subtitle: 'BlueMap 选点 · 玩家选择 · AI 模型生成 · 部署与回滚',
-    },
-  },
-  {
-    path: '/studio',
-    name: 'studio',
-    component: () => import('../views/GeneratePage.vue'),
-    meta: {
-      admin: true,
-      title: 'StructEngine 参考图生成器',
-      subtitle: '上传 1~3 张参考图，多模态 AI 推断生成 Minecraft 体素模型',
-    },
+    path: '/admin/models',
+    name: 'admin-models',
+    component: () => import('../views/AdminModelsPage.vue'),
+    meta: { admin: true, title: '全部模型产物', subtitle: '管理员可查看与删除全部模型' },
   },
   {
     path: '/',

@@ -7,6 +7,7 @@ import {
   ApiError,
   deployModel,
   generateModel,
+  getServer,
   getTask,
   listHistory,
   listServers,
@@ -15,8 +16,12 @@ import {
   sendChat,
 } from '../api/platform'
 
+const props = defineProps({
+  serverId: { type: String, default: '' },
+})
+
 const route = useRoute()
-const preferredServerId = typeof route.query.serverId === 'string' ? route.query.serverId : ''
+const preferredServerId = props.serverId || (typeof route.query.serverId === 'string' ? route.query.serverId : '')
 const servers = ref([])
 const selectedServerId = ref('')
 const selectedServer = computed(() =>
@@ -111,6 +116,16 @@ function errorMessage(error) {
   return error instanceof ApiError ? error.message : '请求失败'
 }
 
+async function loadServer(serverId) {
+  try {
+    const server = await getServer(serverId)
+    servers.value = [server]
+    selectedServerId.value = server.serverId
+  } catch (e) {
+    ElMessage.error(errorMessage(e))
+  }
+}
+
 async function loadServers() {
   try {
     servers.value = await listServers()
@@ -180,7 +195,7 @@ async function sendChatMessage() {
   chatInput.value = ''
   chatLoading.value = true
   try {
-    const reply = await sendChat({ sessionId: sessionId.value, message: text })
+    const reply = await sendChat(selectedServerId.value, { sessionId: sessionId.value, message: text })
     chatMessages.value.push({ role: 'assistant', content: reply.reply })
   } catch (e) {
     chatMessages.value.push({ role: 'assistant', content: `错误：${errorMessage(e)}` })
@@ -200,10 +215,7 @@ async function handleGenerate() {
   task.value = null
   try {
     const player = effectivePlayer.value
-    const draft = await generateModel({
-      serverId: selectedServerId.value,
-      playerUuid: player.uuid,
-      playerName: player.name,
+    const draft = await generateModel(selectedServerId.value, {
       prompt: prompt.value.trim(),
     })
     model.value = draft
@@ -229,8 +241,7 @@ async function handleDeploy() {
   buildError.value = ''
   try {
     const player = effectivePlayer.value
-    task.value = await deployModel({
-      serverId: selectedServerId.value,
+    task.value = await deployModel(selectedServerId.value, {
       playerUuid: player.uuid,
       playerName: player.name,
       modelId: model.value.modelId,
@@ -254,7 +265,7 @@ function pollTask(taskId) {
   clearTimeout(pollTimer)
   pollTimer = setTimeout(async () => {
     try {
-      const current = await getTask(taskId)
+      const current = await getTask(selectedServerId.value, taskId)
       task.value = current
       if (!['COMPLETED', 'FAILED', 'ABORTED'].includes(current.status)) {
         pollTask(taskId)
@@ -288,8 +299,8 @@ async function handleRollback(entry) {
   const player = effectivePlayer.value
   if (!player) return
   try {
-    await rollback(selectedServerId.value, {
-      playerUuid: player.uuid || '', playerName: player.name, historyId: entry.historyId,
+    await rollback(selectedServerId.value, entry.historyId, {
+      playerUuid: player.uuid || '', playerName: player.name,
     })
     ElMessage.success('回滚已进入队列')
     setTimeout(loadHistory, 800)
@@ -302,8 +313,8 @@ async function handleRedo(entry) {
   const player = effectivePlayer.value
   if (!player) return
   try {
-    await redo(selectedServerId.value, {
-      playerUuid: player.uuid || '', playerName: player.name, historyId: entry.historyId,
+    await redo(selectedServerId.value, entry.historyId, {
+      playerUuid: player.uuid || '', playerName: player.name,
     })
     ElMessage.success('恢复已进入队列')
     setTimeout(loadHistory, 800)
@@ -319,7 +330,11 @@ function formatTime(value) {
 
 onMounted(() => {
   window.addEventListener('message', handleWindowMessage)
-  loadServers()
+  if (props.serverId) {
+    loadServer(props.serverId)
+  } else {
+    loadServers()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -336,10 +351,13 @@ onBeforeUnmount(() => {
           <p>选择游戏服 → BlueMap 选点 → 选择玩家 → AI 生成 → 预览 → 部署</p>
         </div>
         <div class="header-actions">
-          <el-select v-model="selectedServerId" placeholder="选择游戏服" style="width: 210px">
-            <el-option v-for="server in servers" :key="server.serverId" :label="`${server.serverName} (${server.serverId})`" :value="server.serverId" />
-          </el-select>
-          <el-button @click="loadServers">刷新</el-button>
+          <span v-if="serverId" class="server-badge">{{ selectedServer?.serverName || serverId }}</span>
+          <template v-else>
+            <el-select v-model="selectedServerId" placeholder="选择游戏服" style="width: 210px">
+              <el-option v-for="server in servers" :key="server.serverId" :label="`${server.serverName} (${server.serverId})`" :value="server.serverId" />
+            </el-select>
+            <el-button @click="loadServers">刷新</el-button>
+          </template>
         </div>
       </header>
 
@@ -461,6 +479,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .studio { display: flex; flex-direction: column; gap: 16px; }
+.server-badge { padding: 6px 12px; border: 1px solid var(--rc-panel-border); border-radius: 999px; color: var(--el-color-primary); font-size: 12px; }
 .studio-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .studio-header h2 { margin: 0; font-size: 22px; }
 .studio-header p { margin: 8px 0 0; color: var(--rc-text-dim); font-size: 13px; }

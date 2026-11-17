@@ -7,9 +7,13 @@ import com.structengine.platform.domain.ModelData;
 import com.structengine.platform.domain.VoxelBlock;
 import com.structengine.platform.game.protocol.GameMessage;
 import com.structengine.platform.game.ws.GameServerRegistry;
+import com.structengine.platform.id.SnowflakeIdGenerator;
 import com.structengine.platform.llm.JsonSanitizer;
+import com.structengine.platform.model.ModelArtifact;
+import com.structengine.platform.model.ModelArtifactService;
 import com.structengine.platform.service.FileStorageService;
-import com.structengine.platform.service.PlatformStore;
+import com.structengine.platform.task.BuildTask;
+import com.structengine.platform.task.BuildTaskService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -17,45 +21,48 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
 
 /**
- * 生成模型 -> 计算中心/原点 -> 旋转 -> 下发 BUILD。
+ * 模型产物 -> 查询地表 Y -> 计算原点/旋转 -> 下发 BUILD。
  */
 @Service
 public class DeployService {
 
-    private final PlatformStore store;
     private final GameServerRegistry registry;
     private final HeightRpcService heightRpcService;
     private final FileStorageService fileStorage;
     private final JsonSanitizer sanitizer;
     private final BuildTaskService taskService;
+    private final ModelArtifactService modelService;
+    private final SnowflakeIdGenerator idGenerator;
     private final AppProperties props;
 
-    public DeployService(PlatformStore store, GameServerRegistry registry,
-                         HeightRpcService heightRpcService, FileStorageService fileStorage,
-                         JsonSanitizer sanitizer, BuildTaskService taskService, AppProperties props) {
-        this.store = store;
+    public DeployService(GameServerRegistry registry, HeightRpcService heightRpcService,
+                         FileStorageService fileStorage, JsonSanitizer sanitizer,
+                         BuildTaskService taskService, ModelArtifactService modelService,
+                         SnowflakeIdGenerator idGenerator, AppProperties props) {
         this.registry = registry;
         this.heightRpcService = heightRpcService;
         this.fileStorage = fileStorage;
         this.sanitizer = sanitizer;
         this.taskService = taskService;
+        this.modelService = modelService;
+        this.idGenerator = idGenerator;
         this.props = props;
     }
 
-    public PlatformStore.TaskRecord deploy(String serverId, String playerUuid, String playerName,
-                                           String modelId, int centerX, int centerZ, int rotation,
-                                           String baseUrl) {
-        PlatformStore.ModelRecord model = store.findModel(modelId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.BAD_REQUEST, "模型不存在"));
-        if (!registry.isConnected(serverId)) {
+    public BuildTask deploy(long ownerUserId, long serverId, String playerUuid,
+                            String playerName, long modelId, int centerX, int centerZ,
+                            int rotation, String baseUrl) {
+        ModelArtifact model = modelService.requireActive(serverId, modelId);
+        String serverKey = Long.toString(serverId);
+        if (!registry.isConnected(serverKey)) {
             throw new BusinessException(ErrorCode.GAME_SERVER_UNAVAILABLE, "游戏服未连接");
         }
 
-        String taskId = UUID.randomUUID().toString();
-        int groundY = heightRpcService.queryY(serverId, taskId, playerName, centerX, centerZ);
+        long taskId = idGenerator.nextId();
+        String taskKey = Long.toString(taskId);
+        int groundY = heightRpcService.queryY(serverKey, taskKey, playerName, centerX, centerZ);
 
         List<VoxelBlock> blocks = loadModel(modelId);
         blocks = rotate(blocks, rotation);
@@ -68,32 +75,28 @@ public class DeployService {
         int originZ = centerZ - Math.floorDiv(depth - 1, 2);
         int originY = groundY + 1;
 
-        fileStorage.saveModel(taskId, new ModelData(blocks).serialize());
-        String base = baseUrl == null ? "" : baseUrl.trim();
-        while (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        String modelUrl = base + "/models/" + taskId + ".json";
+        fileStorage.saveModel(taskKey, new ModelData(blocks).serialize());
+        String modelUrl = join(baseUrl, "/models/" + taskKey + ".json");
 
         long now = System.currentTimeMillis();
-        PlatformStore.TaskRecord task = new PlatformStore.TaskRecord(
-                taskId, serverId, playerUuid, playerName, modelId,
-                centerX, groundY, centerZ, originX, originY, originZ, rotation,
+        BuildTask task = new BuildTask(taskId, ownerUserId, serverId, modelId, playerUuid,
+                playerName, centerX, groundY, centerZ, originX, originY, originZ, rotation,
                 "QUEUED", 0, blocks.size(), null, now, now);
         taskService.save(task);
 
-        GameMessage build = GameMessage.build(taskId, playerUuid, playerName,
+        GameMessage build = GameMessage.build(taskKey, playerUuid, playerName,
                 originX, originY, originZ, modelUrl, model.prompt(), rotation);
-        if (!registry.send(serverId, build)) {
-            taskService.status(taskId, "FAILED", 0, blocks.size(), "BUILD 发送失败");
+        if (!registry.send(serverKey, build)) {
+            taskService.status(taskKey, "FAILED", 0, blocks.size(), "BUILD 发送失败");
             throw new BusinessException(ErrorCode.GAME_SERVER_UNAVAILABLE, "BUILD 发送失败");
         }
         return task;
     }
 
-    private List<VoxelBlock> loadModel(String modelId) {
+    private List<VoxelBlock> loadModel(long modelId) {
         try {
-            String json = Files.readString(props.dataPath().resolve("models").resolve(modelId + ".json"));
+            String json = Files.readString(props.dataPath().resolve("models")
+                    .resolve(modelId + ".json"));
             return sanitizer.sanitize(json);
         } catch (IOException e) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "读取模型失败");
@@ -126,7 +129,8 @@ public class DeployService {
                     nx = maxZ - z;
                     nz = x;
                 }
-                default -> throw new BusinessException(ErrorCode.BAD_REQUEST, "旋转角度必须是 0/90/180/270");
+                default -> throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "旋转角度必须是 0/90/180/270");
             }
             result.add(new VoxelBlock(block.id(), nx, block.y(), nz));
         }
@@ -134,10 +138,19 @@ public class DeployService {
         int minZ = result.stream().mapToInt(VoxelBlock::z).min().orElse(0);
         List<VoxelBlock> normalizedList = new ArrayList<>(result.size());
         for (VoxelBlock block : result) {
-            normalizedList.add(new VoxelBlock(block.id(), block.x() - minX, block.y(), block.z() - minZ));
+            normalizedList.add(new VoxelBlock(block.id(), block.x() - minX,
+                    block.y(), block.z() - minZ));
         }
         normalizedList.sort(Comparator.comparingInt(VoxelBlock::y)
                 .thenComparingInt(VoxelBlock::x).thenComparingInt(VoxelBlock::z));
         return normalizedList;
+    }
+
+    private static String join(String base, String path) {
+        String value = base == null ? "" : base.trim();
+        while (value.endsWith("/")) {
+            value = value.substring(0, value.length() - 1);
+        }
+        return value + path;
     }
 }

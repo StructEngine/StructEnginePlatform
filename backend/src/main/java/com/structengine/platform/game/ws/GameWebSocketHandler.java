@@ -3,7 +3,7 @@ package com.structengine.platform.game.ws;
 import com.structengine.platform.game.protocol.ActionType;
 import com.structengine.platform.game.protocol.GameMessage;
 import com.structengine.platform.game.protocol.GameMessageCodec;
-import com.structengine.platform.game.service.BuildTaskService;
+import com.structengine.platform.task.BuildTaskService;
 import com.structengine.platform.server.ServerSecrets;
 import com.structengine.platform.server.ServerService;
 import org.slf4j.Logger;
