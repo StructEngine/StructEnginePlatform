@@ -328,6 +328,12 @@ function formatTime(value) {
   return new Date(value).toLocaleString()
 }
 
+watch(() => props.serverId, (serverId) => {
+  if (serverId) {
+    loadServer(serverId)
+  }
+})
+
 onMounted(() => {
   window.addEventListener('message', handleWindowMessage)
   if (props.serverId) {

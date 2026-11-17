@@ -8,7 +8,7 @@ const props = defineProps({
   serverId: { type: String, default: '' },
 })
 
-const { fileList, description, loading, result, error, voxels, submit } = useGenerate(props.serverId)
+const { fileList, description, loading, result, error, voxels, submit } = useGenerate(() => props.serverId)
 
 function handleFilesChange(files) {
   fileList.value = files

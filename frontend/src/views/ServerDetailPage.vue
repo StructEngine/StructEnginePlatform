@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import BuildStudioPage from './BuildStudioPage.vue'
@@ -138,6 +138,12 @@ async function copyConfig() {
     ElMessage.warning('复制失败，请手动选择')
   }
 }
+
+watch(() => route.params.serverId, (value, previous) => {
+  if (value && value !== previous) {
+    load()
+  }
+})
 
 onMounted(load)
 </script>

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteServerModel, listServerModels } from '../api/platform'
 import { copyText } from '../utils/clipboard'
@@ -73,6 +73,11 @@ function onPageChange(value) {
   page.value = value
   load()
 }
+
+watch(() => props.serverId, () => {
+  page.value = 1
+  load()
+})
 
 onMounted(load)
 </script>

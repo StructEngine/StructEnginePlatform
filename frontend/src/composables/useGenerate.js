@@ -4,7 +4,7 @@ import { parseVoxelData } from '../three/parseVoxelData'
 
 const MAX_IMAGES = 3
 
-export function useGenerate(serverId = '') {
+export function useGenerate(serverIdSource = '') {
   const fileList = ref([])
   const description = ref('')
   const loading = ref(false)
@@ -33,10 +33,12 @@ export function useGenerate(serverId = '') {
     previewError.value = ''
     loading.value = true
     try {
-      if (!serverId) {
+      const currentServerId = typeof serverIdSource === 'function'
+        ? serverIdSource() : serverIdSource
+      if (!currentServerId) {
         throw new GenerateError('请从服务器详情进入参考图生成')
       }
-      const data = await generateFromImages(serverId, fileList.value, description.value)
+      const data = await generateFromImages(currentServerId, fileList.value, description.value)
       result.value = data.modelUrl
       voxels.value = data.blocks && data.blocks.length > 0
         ? parseVoxelData(data.blocks).blocks

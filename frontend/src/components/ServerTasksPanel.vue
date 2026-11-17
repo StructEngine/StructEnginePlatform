@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listServerTasks } from '../api/platform'
 
@@ -33,6 +33,8 @@ async function load() {
     loading.value = false
   }
 }
+
+watch(() => props.serverId, load)
 
 onMounted(load)
 </script>
