@@ -1,8 +1,6 @@
 package com.structengine.platform.config;
 
-import com.structengine.platform.auth.AdminAuthInterceptor;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -16,16 +14,9 @@ import java.nio.file.Path;
 public class WebConfig implements WebMvcConfigurer {
 
     private final AppProperties props;
-    private final AdminAuthInterceptor adminAuthInterceptor;
 
-    public WebConfig(AppProperties props, AdminAuthInterceptor adminAuthInterceptor) {
+    public WebConfig(AppProperties props) {
         this.props = props;
-        this.adminAuthInterceptor = adminAuthInterceptor;
-    }
-
-    @Override
-    public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(adminAuthInterceptor).addPathPatterns("/api/**");
     }
 
     @Override

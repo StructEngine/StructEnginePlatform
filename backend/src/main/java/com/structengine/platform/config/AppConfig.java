@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteDataSource;
 
 import javax.sql.DataSource;
@@ -23,7 +24,12 @@ public class AppConfig {
     public DataSource dataSource(AppProperties props) throws IOException {
         Path dir = props.dataPath();
         Files.createDirectories(dir);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
+        SQLiteConfig config = new SQLiteConfig();
+        config.enforceForeignKeys(true);
+        config.setBusyTimeout(5000);
+        config.setJournalMode(SQLiteConfig.JournalMode.WAL);
+
+        SQLiteDataSource dataSource = new SQLiteDataSource(config);
         dataSource.setUrl("jdbc:sqlite:" + dir.resolve("structengine.db"));
         return dataSource;
     }

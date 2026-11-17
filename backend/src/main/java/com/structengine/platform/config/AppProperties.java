@@ -44,8 +44,22 @@ public class AppProperties {
     /** 对外基础地址（如 https://build.example.com）；为空则按请求 Host 推导。 */
     private String publicBaseUrl = "";
 
-    /** 单管理员登录密码；生产环境必须覆盖。 */
-    private String adminPassword = "change-me";
+    /** JWT HS256 密钥；至少 32 字节，生产必须通过环境变量覆盖。 */
+    @NotBlank
+    private String jwtSecret;
+
+    /** JWT 有效期（小时）。 */
+    @Min(1)
+    @Max(720)
+    private int jwtTtlHours = 24;
+
+    /** 首次安装创建 admin 的初始密码；admin 已存在时忽略。 */
+    private String adminInitialPassword = "";
+
+    /** Snowflake workerId，单实例默认 0。 */
+    @Min(0)
+    @Max(1023)
+    private int snowflakeWorkerId = 0;
 
     /** 一次生成允许的最大方块数。 */
     private int maxModelBlocks = 20000;
@@ -130,12 +144,36 @@ public class AppProperties {
         this.publicBaseUrl = publicBaseUrl;
     }
 
-    public String getAdminPassword() {
-        return adminPassword;
+    public String getJwtSecret() {
+        return jwtSecret;
     }
 
-    public void setAdminPassword(String adminPassword) {
-        this.adminPassword = adminPassword;
+    public void setJwtSecret(String jwtSecret) {
+        this.jwtSecret = jwtSecret;
+    }
+
+    public int getJwtTtlHours() {
+        return jwtTtlHours;
+    }
+
+    public void setJwtTtlHours(int jwtTtlHours) {
+        this.jwtTtlHours = jwtTtlHours;
+    }
+
+    public String getAdminInitialPassword() {
+        return adminInitialPassword;
+    }
+
+    public void setAdminInitialPassword(String adminInitialPassword) {
+        this.adminInitialPassword = adminInitialPassword;
+    }
+
+    public int getSnowflakeWorkerId() {
+        return snowflakeWorkerId;
+    }
+
+    public void setSnowflakeWorkerId(int snowflakeWorkerId) {
+        this.snowflakeWorkerId = snowflakeWorkerId;
     }
 
     public int getMaxModelBlocks() {

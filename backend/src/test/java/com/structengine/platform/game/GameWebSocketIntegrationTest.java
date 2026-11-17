@@ -1,6 +1,13 @@
 package com.structengine.platform.game;
 
+import com.structengine.platform.account.AccountType;
+import com.structengine.platform.account.AdminAccount;
+import com.structengine.platform.account.AdminAccountRepository;
+import com.structengine.platform.account.AppUser;
+import com.structengine.platform.account.UserAccountRepository;
 import com.structengine.platform.game.ws.GameServerRegistry;
+import com.structengine.platform.id.SnowflakeIdGenerator;
+import com.structengine.platform.security.JwtService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -12,8 +19,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.net.CookieManager;
-import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -37,7 +42,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "structengine.ai-api-url=http://localhost:1",
         "structengine.ai-api-key=test",
         "structengine.ai-model=test-model",
-        "structengine.game-token=secret-token"
+        "structengine.game-token=secret-token",
+        "structengine.jwt-secret=integration-test-secret-key-0123456789abcdef",
+        "structengine.admin-initial-password=admin-test"
 })
 class GameWebSocketIntegrationTest {
 
@@ -64,6 +71,18 @@ class GameWebSocketIntegrationTest {
 
     @Autowired
     GameServerRegistry gameServerRegistry;
+
+    @Autowired
+    AdminAccountRepository adminAccountRepository;
+
+    @Autowired
+    JwtService jwtService;
+
+    @Autowired
+    UserAccountRepository userAccountRepository;
+
+    @Autowired
+    SnowflakeIdGenerator idGenerator;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -95,8 +114,7 @@ class GameWebSocketIntegrationTest {
                         && "http://localhost:8100/structengine-map.html".equals(info.blueMapUrl())
                         && info.playerCount() == 1));
 
-        CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
-        HttpClient web = HttpClient.newBuilder().cookieHandler(cookies)
+        HttpClient web = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5)).build();
 
         HttpResponse<String> unauth = web.send(HttpRequest.newBuilder(
@@ -104,29 +122,62 @@ class GameWebSocketIntegrationTest {
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(401, unauth.statusCode());
 
-        HttpResponse<String> login = web.send(HttpRequest.newBuilder(
-                        URI.create("http://localhost:" + port + "/api/auth/login"))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString("{\"password\":\"change-me\"}"))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
-        assertEquals(200, login.statusCode());
-        assertTrue(login.body().contains("\"authenticated\":true"), login.body());
+        AdminAccount admin = adminAccountRepository.findByUsername("admin").orElseThrow();
+        String token = jwtService.issue(AccountType.ADMIN, admin.id(), admin.username(),
+                "ADMIN", admin.tokenVersion());
 
         HttpResponse<String> servers = web.send(HttpRequest.newBuilder(
-                        URI.create("http://localhost:" + port + "/api/servers")).GET().build(),
+                        URI.create("http://localhost:" + port + "/api/servers"))
+                        .header("Authorization", "Bearer " + token)
+                        .GET().build(),
                 HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, servers.statusCode(), servers.body());
         assertTrue(servers.body().contains("\"serverName\":\"Integration\""), servers.body());
         assertTrue(servers.body().contains("\"name\":\"Steve\""), servers.body());
 
         HttpResponse<String> history = web.send(HttpRequest.newBuilder(
                         URI.create("http://localhost:" + port
                                 + "/api/servers/it/history?playerUuid=00000000-0000-0000-0000-000000000001&playerName=Steve"))
+                        .header("Authorization", "Bearer " + token)
                         .GET().build(),
                 HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, history.statusCode(), history.body());
         assertTrue(history.body().contains("\"historyId\":\"h-1\""), history.body());
 
         socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+    }
+
+    @Test
+    void enforcesAdminOnlyAccessForRegisteredUser() throws Exception {
+        long userId = idGenerator.nextId();
+        long now = System.currentTimeMillis();
+        userAccountRepository.insert(new AppUser(userId, "UserA", "unused-hash",
+                "ACTIVE", 0, now, now, null));
+        String userToken = jwtService.issue(AccountType.USER, userId, "UserA", "USER", 0);
+
+        HttpClient web = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+
+        HttpResponse<String> me = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/auth/me"))
+                        .header("Authorization", "Bearer " + userToken)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, me.statusCode(), me.body());
+        assertTrue(me.body().contains("\"username\":\"UserA\""), me.body());
+
+        HttpResponse<String> adminUsers = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/admin/users"))
+                        .header("Authorization", "Bearer " + userToken)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, adminUsers.statusCode(), adminUsers.body());
+
+        HttpResponse<String> servers = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers"))
+                        .header("Authorization", "Bearer " + userToken)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, servers.statusCode(), servers.body());
     }
 
     @Test

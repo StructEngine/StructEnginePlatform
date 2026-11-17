@@ -34,7 +34,12 @@ class ApiResponseTest {
     void errorCodeMapping() {
         assertEquals(200, ErrorCode.SUCCESS.code());
         assertEquals(400, ErrorCode.BAD_REQUEST.code());
+        assertEquals(401, ErrorCode.UNAUTHORIZED.code());
+        assertEquals(403, ErrorCode.FORBIDDEN.code());
+        assertEquals(404, ErrorCode.NOT_FOUND.code());
+        assertEquals(409, ErrorCode.CONFLICT.code());
         assertEquals(413, ErrorCode.TOO_LARGE.code());
+        assertEquals(429, ErrorCode.TOO_MANY_REQUESTS.code());
         assertEquals(422, ErrorCode.UNPROCESSABLE.code());
         assertEquals(502, ErrorCode.UPSTREAM_ERROR.code());
         assertEquals(503, ErrorCode.GAME_SERVER_UNAVAILABLE.code());

@@ -15,11 +15,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * 新 Web 使用的服务器/玩家/历史接口。
  */
 @RestController
+@PreAuthorize("hasRole('ADMIN')")
 @RequestMapping("/api/servers")
 public class GameServerController {
 

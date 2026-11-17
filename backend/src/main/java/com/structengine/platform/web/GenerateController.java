@@ -8,11 +8,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * 上传转换接口：POST /api/generate。
  */
 @RestController
+@PreAuthorize("hasRole('ADMIN')")
 @RequestMapping("/api")
 public class GenerateController {
 

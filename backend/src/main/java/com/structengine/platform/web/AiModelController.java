@@ -15,11 +15,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * AI 对话与模型生成接口。
  */
 @RestController
+@PreAuthorize("hasRole('ADMIN')")
 @RequestMapping("/api")
 public class AiModelController {
 
