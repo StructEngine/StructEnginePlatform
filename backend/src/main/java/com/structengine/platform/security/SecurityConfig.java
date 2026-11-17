@@ -54,7 +54,15 @@ public class SecurityConfig {
                                 "/index.html",
                                 "/assets/**",
                                 "/favicon.ico",
-                                "/error"
+                                "/favicon.svg",
+                                "/error",
+                                "/login",
+                                "/register",
+                                "/change-password",
+                                "/servers/**",
+                                "/build/**",
+                                "/studio/**",
+                                "/admin/**"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
