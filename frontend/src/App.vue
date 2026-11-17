@@ -9,7 +9,7 @@ const auth = useAuth()
 
 const isAuthPage = computed(() => Boolean(route.meta.public))
 const showNav = computed(() => Boolean(auth.state.user) && !isAuthPage.value)
-const wide = computed(() => route.name === 'server-detail' || route.path === '/admin/users')
+const wide = computed(() => route.name === 'server-detail' || route.path.startsWith('/admin/'))
 const title = computed(() => route.meta.title || 'StructEngine')
 const subtitle = computed(() => route.meta.subtitle || '')
 
