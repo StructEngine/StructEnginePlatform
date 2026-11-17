@@ -11,7 +11,7 @@ StructEngine 的云端控制面：多用户/JWT 管理、Minecraft 游戏服管�
         │ postMessage 选点
         ▼
 StructEnginePlatform
-  ├─ WebSocket /ws/game  ← 多个 Minecraft Server 插件（协议 v2）
+  ├─ WebSocket /ws/game  ← 多个 Minecraft Server 插件（协议 v3，每服 secret）
   ├─ Spring AI → OpenAI-compatible 上游
   ├─ SQLite（模型、任务、对话）
   └─ data/models/*.json（外网可访问）
@@ -22,8 +22,8 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 
 ### 关键流程
 
-1. Minecraft Server 插件通过 `ws://platform:8080/ws/game?serverId=...` 连接 Platform。
-2. 插件发送 `HELLO`（serverId、serverName、BlueMap URL、mapId、协议版本），并每 10 秒/玩家事件时上报 `PLAYER_LIST`。
+1. 用户在“服务器管理”创建服务器，平台生成一次性 secret；插件用 `STRUCTENGINE_PLATFORM_URL + STRUCTENGINE_SERVER_SECRET` 连接 Platform。
+2. 插件握手携带 `X-StructEngine-Secret`，发送 `HELLO`（serverName、BlueMap URL、mapId、secret、协议版本 3），并每 10 秒/玩家事件时上报 `PLAYER_LIST`。
 3. Web 选择 Minecraft Server → 加载该服的 BlueMap 定制页 → 点击选点（建筑中心 X/Z）→ 选择在线/离线玩家。
 4. 在 AI 对话窗口描述建筑；调用 `/api/models/generate` 生成严格 voxel JSON。
 5. 生成后预览模型，点击部署；Platform 查询地表 Y、计算中心偏移与旋转，落盘部署模型并发送 `BUILD`。
@@ -51,7 +51,6 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 | `STRUCTENGINE_JWT_TTL_HOURS` | JWT 有效期（小时） | `24` |
 | `STRUCTENGINE_ADMIN_INITIAL_PASSWORD` | 首次安装 admin 初始密码（6~16 位） | 无，首次必须配置 |
 | `STRUCTENGINE_SNOWFLAKE_WORKER_ID` | Snowflake workerId（0~1023） | `0` |
-| `STRUCTENGINE_GAME_TOKEN` | Minecraft Server WebSocket 握手令牌 | 空（生产必须设置） |
 | `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件回包的秒数 | `5` |
 | `STRUCTENGINE_AI_BASE_URL` | OpenAI-compatible Base URL | `https://token.dcepstc.com/v1` |
 | `STRUCTENGINE_AI_API_KEY` | AI API Key | 空 |
@@ -119,10 +118,9 @@ http://192.168.1.201:8102/structengine-map.html
 在 Minecraft Server 启动前设置（以 NeoForge 为例）：
 
 ```bash
-export STRUCTENGINE_WS_URL=ws://192.168.1.201:8080/ws/game
-export STRUCTENGINE_SERVER_ID=neoforge-local
+export STRUCTENGINE_PLATFORM_URL=ws://192.168.1.201:8080/ws/game
+export STRUCTENGINE_SERVER_SECRET=在平台服务器详情中复制的一次性 secret
 export STRUCTENGINE_SERVER_NAME="NeoForge 测试服"
-export STRUCTENGINE_WS_TOKEN=change-me
 export STRUCTENGINE_BLUEMAP_URL=http://192.168.1.201:8102/structengine-map.html
 export STRUCTENGINE_BLUEMAP_MAP_ID=world
 ```
@@ -163,15 +161,17 @@ cp -r frontend/dist dist
 ## 管理台使用
 
 1. 打开 `http://192.168.1.201:8080/`，使用 `admin` + 初始密码登录；首次登录会要求改密。
-2. 管理员可在“用户管理”中创建/禁用/重置/删除普通用户；普通用户当前进入“我的服务器”占位页，服务器管理将在第二阶段开放。
-3. 管理员切换到“AI 地图建造”页，选择游戏服。
-4. 在 BlueMap 地图点击选择建筑中心。
-5. 选择在线玩家，或切换到离线玩家输入名称/UUID。
-6. 在 AI 对话窗口讨论方案；填写模型描述。
-7. 点击“生成模型”，等待模型预览。
-8. 选择朝向（南/东/北/西/朝向玩家），点击“部署到 ...”。
-9. 在任务状态中查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`。
-10. 在构建历史中执行回滚/恢复。
+2. 管理员可在“用户管理”中创建/禁用/重置/删除普通用户。
+3. 普通用户登录后进入“服务器管理”，创建服务器；平台只显示一次 secret，把它配置到该服的 StructEngine 插件。
+4. 插件连接成功后服务器状态变为在线，管理员可在“服务器管理”中看到 BlueMap、玩家和在线状态。
+5. 管理员切换到“AI 地图建造”页，选择游戏服。
+6. 在 BlueMap 地图点击选择建筑中心。
+7. 选择在线玩家，或切换到离线玩家输入名称/UUID。
+8. 在 AI 对话窗口讨论方案；填写模型描述。
+9. 点击“生成模型”，等待模型预览。
+10. 选择朝向（南/东/北/西/朝向玩家），点击“部署到 ...”。
+11. 在任务状态中查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`。
+12. 在构建历史中执行回滚/恢复。
 
 ### 参考图建模（三视图仅为建议）
 
@@ -203,8 +203,15 @@ curl -H "Authorization: Bearer $TOKEN" \
 | PUT | `/api/admin/users/{id}` | 管理员修改用户名/状态 |
 | PUT | `/api/admin/users/{id}/password` | 管理员重置用户密码 |
 | DELETE | `/api/admin/users/{id}` | 管理员删除用户 |
-| GET | `/api/servers` | 已连接游戏服、BlueMap URL、玩家列表 |
-| GET | `/api/servers/{serverId}/history` | 查询玩家构建历史 |
+| GET | `/api/servers` | 服务器列表（用户自己的，管理员全部） |
+| POST | `/api/servers` | 创建服务器，返回一次性 secret |
+| GET | `/api/servers/{serverId}` | 服务器详情 |
+| PUT | `/api/servers/{serverId}` | 重命名服务器 |
+| POST | `/api/servers/{serverId}/secret/rotate` | 轮换 secret，返回新 secret |
+| POST | `/api/servers/{serverId}/disable` | 禁用服务器并断开插件 |
+| POST | `/api/servers/{serverId}/enable` | 启用服务器 |
+| DELETE | `/api/servers/{serverId}` | 软删除服务器 |
+| GET | `/api/servers/{serverId}/history` | 查询玩家构建历史（当前仅管理员） |
 | POST | `/api/servers/{serverId}/rollback` | 回滚指定历史 |
 | POST | `/api/servers/{serverId}/redo` | 恢复指定历史 |
 | POST | `/api/ai/chat` | AI 对话 |
@@ -220,13 +227,16 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 > 旧 `/api/map/build` 与 Squaremap 页面已删除。
 
-## WebSocket 协议 v2
+## WebSocket 协议 v3
 
-主要消息：
+握手：`GET /ws/game` + `X-StructEngine-Secret: <secret>`（也兼容 `?secret=`）。
+平台按 secret 哈希反查服务器并绑定 serverId；所有上行消息都带 `secret`。
 
 ```text
-Minecraft Server -> Platform: HELLO, PLAYER_LIST, RESPONSE_Y, BUILD_STATUS, HISTORY_RESPONSE, ERROR, PING
-Platform -> Minecraft Server: QUERY_Y, BUILD, HISTORY_REQUEST, ROLLBACK, REDO, PONG
+Minecraft Server -> Platform: HELLO, PLAYER_LIST, RESPONSE_Y, BUILD_STATUS,
+                              HISTORY_RESPONSE, ERROR, PING（均含 secret）
+Platform -> Minecraft Server: CONNECTED, QUERY_Y, BUILD, HISTORY_REQUEST,
+                              ROLLBACK, REDO, PONG
 ```
 
 `BUILD` 包含：
@@ -251,6 +261,7 @@ Platform -> Minecraft Server: QUERY_Y, BUILD, HISTORY_REQUEST, ROLLBACK, REDO, P
 - SQLite：`{data-dir}/structengine.db`
   - `admin_account`（超级管理员）
   - `app_user`（Minecraft 服主）
+  - `minecraft_server`（服务器归属与 secret 哈希）
   - `model_draft`
   - `build_task`
   - `chat_message`
@@ -269,6 +280,6 @@ npm run build
 ```
 
 测试包含：
-- 后端 93 项：Snowflake、JWT、验证码、认证/管理员用户、WebSocket/玩家列表/历史 RPC、模型清洗与文件存储等；
+- 后端 102 项：Snowflake、JWT、验证码、认证/管理员用户、服务器归属/secret、WebSocket v3/玩家列表/历史 RPC、模型清洗与文件存储等；
 - 前端 11 项：参考图 API、体素解析；
 - 真机 RCON 验收脚本仍使用旧 `/api/map/*`，Phase 2 会随服务器/部署接口调整。

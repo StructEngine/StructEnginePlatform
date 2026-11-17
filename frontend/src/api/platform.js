@@ -12,6 +12,40 @@ export function listServers() {
   return api('/servers')
 }
 
+export function createServer({ name }) {
+  return api('/servers', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function getServer(serverId) {
+  return api(`/servers/${encodeURIComponent(serverId)}`)
+}
+
+export function updateServer(serverId, { name }) {
+  return api(`/servers/${encodeURIComponent(serverId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function rotateServerSecret(serverId) {
+  return api(`/servers/${encodeURIComponent(serverId)}/secret/rotate`, { method: 'POST' })
+}
+
+export function disableServer(serverId) {
+  return api(`/servers/${encodeURIComponent(serverId)}/disable`, { method: 'POST' })
+}
+
+export function enableServer(serverId) {
+  return api(`/servers/${encodeURIComponent(serverId)}/enable`, { method: 'POST' })
+}
+
+export function deleteServer(serverId) {
+  return api(`/servers/${encodeURIComponent(serverId)}`, { method: 'DELETE' })
+}
+
 export function sendChat({ sessionId, message }) {
   return api('/ai/chat', {
     method: 'POST',

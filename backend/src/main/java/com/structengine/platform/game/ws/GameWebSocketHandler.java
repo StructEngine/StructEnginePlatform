@@ -4,6 +4,8 @@ import com.structengine.platform.game.protocol.ActionType;
 import com.structengine.platform.game.protocol.GameMessage;
 import com.structengine.platform.game.protocol.GameMessageCodec;
 import com.structengine.platform.game.service.BuildTaskService;
+import com.structengine.platform.server.ServerSecrets;
+import com.structengine.platform.server.ServerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,10 +16,10 @@ import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorato
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 /**
- * 游戏服 WebSocket 入口：处理插件回传的 RESPONSE_Y、ERROR、PING。
+ * 游戏服 WebSocket 入口（协议 v3）。
  *
- * <p>所有发送均走 {@link ConcurrentWebSocketSessionDecorator}，允许 HTTP 处理线程与
- * WebSocket 回调线程并发下发消息。</p>
+ * <p>握手已用 secret 绑定 serverId；所有上行消息还会再次校验 secret，
+ * 防止同一连接伪造 serverId/消息来源。</p>
  */
 @Component
 public class GameWebSocketHandler extends TextWebSocketHandler {
@@ -27,16 +29,20 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(GameWebSocketHandler.class);
     private static final int SEND_TIME_LIMIT_MS = 10_000;
     private static final int BUFFER_SIZE_LIMIT = 1024 * 1024;
+    private static final CloseStatus UNAUTHORIZED =
+            new CloseStatus(4401, "invalid server secret");
 
     private final GameServerRegistry registry;
     private final GameMessageCodec codec;
     private final BuildTaskService taskService;
+    private final ServerService serverService;
 
     public GameWebSocketHandler(GameServerRegistry registry, GameMessageCodec codec,
-                                BuildTaskService taskService) {
+                                BuildTaskService taskService, ServerService serverService) {
         this.registry = registry;
         this.codec = codec;
         this.taskService = taskService;
+        this.serverService = serverService;
     }
 
     @Override
@@ -68,43 +74,55 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        switch (action) {
-            case HELLO -> handleHello(serverId, decoded);
-            case PLAYER_LIST -> handlePlayerList(serverId, decoded);
-            case RESPONSE_Y -> handleResponseY(serverId, decoded);
-            case BUILD_STATUS -> {
-                if (decoded.taskId() != null && decoded.state() != null) {
-                    taskService.status(decoded.taskId(), decoded.state(),
-                            decoded.placed() == null ? 0 : decoded.placed(),
-                            decoded.total() == null ? 0 : decoded.total(),
-                            decoded.message());
+        if (!secretMatches(session, decoded.secret())) {
+            log.warn("游戏服 {} 消息 secret 校验失败，关闭连接", serverId);
+            close(session, UNAUTHORIZED);
+            return;
+        }
+        touch(serverId);
+
+        try {
+            switch (action) {
+                case HELLO -> handleHello(session, serverId, decoded);
+                case PLAYER_LIST -> handlePlayerList(serverId, decoded);
+                case RESPONSE_Y -> handleResponseY(serverId, decoded);
+                case BUILD_STATUS -> taskService.status(decoded.taskId(), decoded.state(),
+                        decoded.placed() == null ? 0 : decoded.placed(),
+                        decoded.total() == null ? 0 : decoded.total(),
+                        decoded.message());
+                case HISTORY_RESPONSE -> {
+                    if (decoded.requestId() != null) {
+                        registry.completeHistory(decoded.requestId(), decoded.history());
+                    }
                 }
-            }
-            case HISTORY_RESPONSE -> {
-                if (decoded.requestId() != null) {
-                    registry.completeHistory(decoded.requestId(), decoded.history());
+                case ERROR -> handleRemoteError(serverId, decoded);
+                case PING -> send(serverId, GameMessage.pong());
+                case CONNECTED, PONG -> {
+                    // 连接确认/心跳回执，无需处理。
                 }
+                default -> log.debug("游戏服 {} 发送了 Platform 侧不处理的消息: {}",
+                        serverId, action);
             }
-            case ERROR -> handleRemoteError(serverId, decoded);
-            case PING -> send(serverId, GameMessage.pong());
-            case CONNECTED, PONG -> {
-                // 连接确认/心跳回执，无需处理。
-            }
-            default -> log.debug("游戏服 {} 发送了 Platform 侧不处理的消息: {}", serverId, action);
+        } catch (RuntimeException e) {
+            log.warn("处理游戏服 {} 消息 {} 失败: {}", serverId, action, e.getMessage());
         }
     }
 
-    private void handleHello(String serverId, GameMessage message) {
-        if (message.serverId() != null && !message.serverId().equals(serverId)) {
-            log.warn("游戏服 {} HELLO 中的 serverId={} 与握手参数不一致", serverId, message.serverId());
+    private void handleHello(WebSocketSession session, String serverId, GameMessage message) {
+        if (message.protocolVersion() == null || message.protocolVersion() != GameMessage.PROTOCOL_VERSION) {
+            log.warn("游戏服 {} 协议版本不匹配: {}", serverId, message.protocolVersion());
+            send(serverId, GameMessage.error(null, "协议版本必须为 " + GameMessage.PROTOCOL_VERSION));
+            close(session, new CloseStatus(4400, "unsupported protocol version"));
             return;
         }
         registry.updateHello(serverId, message.serverName(), message.blueMapUrl(), message.mapId());
         if (message.players() != null) {
             registry.updatePlayers(serverId, message.players(), true);
         }
+        serverService.markOnline(serverIdAsLong(serverId), message.blueMapUrl(), message.mapId());
         log.info("游戏服 {} HELLO name={} blueMap={} map={} protocol={}",
-                serverId, message.serverName(), message.blueMapUrl(), message.mapId(), message.protocolVersion());
+                serverId, message.serverName(), message.blueMapUrl(), message.mapId(),
+                message.protocolVersion());
     }
 
     private void handlePlayerList(String serverId, GameMessage message) {
@@ -140,6 +158,31 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    private boolean secretMatches(WebSocketSession session, String secret) {
+        Object expected = session.getAttributes().get(GameHandshakeInterceptor.ATTR_SECRET_HASH);
+        return expected instanceof String hash && ServerSecrets.matches(secret, hash);
+    }
+
+    private void touch(String serverId) {
+        try {
+            serverService.touch(serverIdAsLong(serverId));
+        } catch (NumberFormatException e) {
+            log.warn("非法 serverId: {}", serverId);
+        }
+    }
+
+    private long serverIdAsLong(String serverId) {
+        return Long.parseLong(serverId);
+    }
+
+    private void close(WebSocketSession session, CloseStatus status) {
+        try {
+            session.close(status);
+        } catch (Exception ignored) {
+            // 已关闭
+        }
+    }
+
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         GameServerChannel channel = (GameServerChannel) session.getAttributes().get(ATTR_CHANNEL);
@@ -147,6 +190,11 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         registry.unregister(channel.serverId(), channel);
+        try {
+            serverService.markOffline(serverIdAsLong(channel.serverId()));
+        } catch (NumberFormatException ignored) {
+            // ignore
+        }
         log.info("游戏服 {} WebSocket 会话关闭 status={}", channel.serverId(), status);
     }
 
@@ -156,12 +204,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         if (channel != null) {
             log.warn("游戏服 {} 传输异常: {}", channel.serverId(), exception.getMessage());
             registry.unregister(channel.serverId(), channel);
+            try {
+                serverService.markOffline(serverIdAsLong(channel.serverId()));
+            } catch (NumberFormatException ignored) {
+                // ignore
+            }
         }
-        try {
-            session.close(CloseStatus.SERVER_ERROR);
-        } catch (Exception ignored) {
-            // 已关闭
-        }
+        close(session, CloseStatus.SERVER_ERROR);
     }
 
     private static String serverId(WebSocketSession session) {

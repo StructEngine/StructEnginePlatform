@@ -5,15 +5,20 @@ import com.structengine.platform.game.protocol.PlayerInfo;
 import java.util.List;
 
 /**
- * 已连接游戏服的精简信息，供 Web 选择服务器、加载 BlueMap 与玩家列表。
+ * 服务器管理/地图工作台共用的服务器视图。
  */
 public record GameServerInfo(
         String serverId,
         String serverName,
         String blueMapUrl,
         String mapId,
+        String status,
+        String ownerUserId,
         int playerCount,
         boolean connected,
-        List<PlayerInfo> players
+        List<PlayerInfo> players,
+        Long lastSeenAt,
+        Long registeredAt,
+        Long createdAt
 ) {
 }

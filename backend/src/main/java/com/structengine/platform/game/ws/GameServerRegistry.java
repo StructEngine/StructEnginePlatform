@@ -105,9 +105,14 @@ public class GameServerRegistry {
                     state.serverName == null ? serverId : state.serverName,
                     state.blueMapUrl,
                     state.mapId == null ? "world" : state.mapId,
+                    entry.getValue().isOpen() ? "ONLINE" : "OFFLINE",
+                    null,
                     state.players.size(),
                     entry.getValue().isOpen(),
-                    state.players
+                    state.players,
+                    state.lastSeen,
+                    state.connectedAt,
+                    state.connectedAt
             ));
         }
         result.sort((a, b) -> a.serverId().compareTo(b.serverId()));
@@ -137,6 +142,15 @@ public class GameServerRegistry {
     public boolean isConnected(String serverId) {
         GameServerChannel channel = channels.get(serverId);
         return channel != null && channel.isOpen();
+    }
+
+    /** 主动断开某服连接（secret 轮换/禁用/删除时使用）。 */
+    public void disconnect(String serverId, String reason) {
+        GameServerChannel channel = channels.get(serverId);
+        if (channel != null) {
+            log.info("主动断开游戏服 {}：{}", serverId, reason);
+            channel.close(reason);
+        }
     }
 
     public boolean send(String serverId, GameMessage message) {

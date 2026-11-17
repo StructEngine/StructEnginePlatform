@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRoute } from 'vue-router'
 import VoxelPreview from '../components/VoxelPreview.vue'
 import {
   ApiError,
@@ -14,6 +15,8 @@ import {
   sendChat,
 } from '../api/platform'
 
+const route = useRoute()
+const preferredServerId = typeof route.query.serverId === 'string' ? route.query.serverId : ''
 const servers = ref([])
 const selectedServerId = ref('')
 const selectedServer = computed(() =>
@@ -58,7 +61,19 @@ const effectivePlayer = computed(() => {
 })
 const playerKey = computed(() => effectivePlayer.value?.uuid || effectivePlayer.value?.name || 'none')
 const sessionId = computed(() => `${selectedServerId.value || 'none'}:${playerKey.value}:${sessionSeed.value}`)
-const mapUrl = computed(() => selectedServer.value?.blueMapUrl || '')
+const mapUrl = computed(() => {
+  const base = selectedServer.value?.blueMapUrl || ''
+  if (!base) {
+    return ''
+  }
+  try {
+    const url = new URL(base, window.location.href)
+    url.searchParams.set('mapId', selectedServer.value?.mapId || 'world')
+    return url.toString()
+  } catch (e) {
+    return base
+  }
+})
 const mapOrigin = computed(() => {
   try {
     return mapUrl.value ? new URL(mapUrl.value, window.location.href).origin : ''
@@ -102,7 +117,9 @@ async function loadServers() {
     if (selectedServerId.value && !servers.value.some((s) => s.serverId === selectedServerId.value)) {
       selectedServerId.value = ''
     }
-    if (!selectedServerId.value && servers.value.length > 0) {
+    if (preferredServerId && servers.value.some((server) => server.serverId === preferredServerId)) {
+      selectedServerId.value = preferredServerId
+    } else if (!selectedServerId.value && servers.value.length > 0) {
       selectedServerId.value = servers.value[0].serverId
     }
   } catch (e) {

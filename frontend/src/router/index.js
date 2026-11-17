@@ -23,8 +23,8 @@ const routes = [
   {
     path: '/servers',
     name: 'servers',
-    component: () => import('../views/ServersPlaceholderPage.vue'),
-    meta: { title: '我的服务器', subtitle: '服务器管理将在 Phase 2 开放' },
+    component: () => import('../views/ServersPage.vue'),
+    meta: { title: '服务器管理', subtitle: '创建服务器、获取 secret、管理插件注册与在线状态' },
   },
   {
     path: '/admin/users',

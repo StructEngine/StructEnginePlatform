@@ -39,8 +39,6 @@ structengine:
   admin-initial-password: ${STRUCTENGINE_ADMIN_INITIAL_PASSWORD:}
   # Snowflake workerId，单实例默认 0。
   snowflake-worker-id: ${STRUCTENGINE_SNOWFLAKE_WORKER_ID:0}
-  # 游戏服 WebSocket 鉴权令牌；为空时不校验（仅建议本地开发使用）。
-  game-token: ${STRUCTENGINE_GAME_TOKEN:}
   # 等待插件 RESPONSE_Y 的超时时间（秒）。
   game-rpc-timeout-seconds: ${STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS:5}
   # 对外可访问的基础地址；为空时按请求 Host 自动推导。

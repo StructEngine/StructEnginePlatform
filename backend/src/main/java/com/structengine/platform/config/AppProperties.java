@@ -33,9 +33,6 @@ public class AppProperties {
 
     private int serverPort = 8080;
 
-    /** 游戏服 WebSocket 鉴权令牌，空字符串表示不校验（仅限本地开发）。 */
-    private String gameToken = "";
-
     /** 等待插件 RESPONSE_Y 的超时秒数。 */
     @Min(1)
     @Max(60)
@@ -118,14 +115,6 @@ public class AppProperties {
 
     public void setServerPort(int serverPort) {
         this.serverPort = serverPort;
-    }
-
-    public String getGameToken() {
-        return gameToken;
-    }
-
-    public void setGameToken(String gameToken) {
-        this.gameToken = gameToken;
     }
 
     public int getGameRpcTimeoutSeconds() {

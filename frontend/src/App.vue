@@ -20,6 +20,7 @@ const navItems = computed(() => {
   if (auth.isAdmin.value) {
     return [
       { path: '/admin/users', label: '用户管理' },
+      { path: '/servers', label: '服务器管理' },
       { path: '/build', label: 'AI 地图建造' },
       { path: '/studio', label: '参考图生成' },
     ]
@@ -54,7 +55,7 @@ onBeforeUnmount(() => {
   <div class="app-shell">
     <header class="app-header">
       <div class="app-header-inner">
-        <router-link to="/" class="app-brand">
+        <router-link :to="auth.defaultRoute.value" class="app-brand">
           <span class="app-brand-main">StructEngine</span>
           <span class="app-brand-badge">Platform</span>
         </router-link>

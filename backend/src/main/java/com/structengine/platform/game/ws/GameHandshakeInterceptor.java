@@ -1,6 +1,7 @@
 package com.structengine.platform.game.ws;
 
-import com.structengine.platform.config.AppProperties;
+import com.structengine.platform.server.MinecraftServer;
+import com.structengine.platform.server.ServerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -12,16 +13,13 @@ import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Map;
 
 /**
- * 游戏服 WebSocket 握手鉴权。
+ * 游戏服 WebSocket 握手鉴权：使用每服独立 secret 反查服务器并绑定 serverId。
  *
- * <p>连接地址：{@code ws://platform:8080/ws/game?serverId=survival}；
- * 若配置了 {@code STRUCTENGINE_GAME_TOKEN}，插件需通过
- * {@code X-StructEngine-Token} 请求头或 {@code Authorization: Bearer ...} 携带令牌。</p>
+ * <p>secret 可通过 {@code X-StructEngine-Secret} 请求头或 {@code ?secret=} 查询参数携带。
+ * 平台不信任客户端自报的 serverId，serverId 完全由 secret 推导。</p>
  */
 @Component
 public class GameHandshakeInterceptor implements HandshakeInterceptor {
@@ -29,41 +27,36 @@ public class GameHandshakeInterceptor implements HandshakeInterceptor {
     private static final Logger log = LoggerFactory.getLogger(GameHandshakeInterceptor.class);
 
     public static final String ATTR_SERVER_ID = "structengine.serverId";
-    private static final String SERVER_ID_PATTERN = "[A-Za-z0-9._-]{1,64}";
+    public static final String ATTR_SECRET_HASH = "structengine.secretHash";
 
-    private final AppProperties props;
+    private final ServerService serverService;
 
-    public GameHandshakeInterceptor(AppProperties props) {
-        this.props = props;
+    public GameHandshakeInterceptor(ServerService serverService) {
+        this.serverService = serverService;
     }
 
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) {
-        String serverId = firstNonBlank(
-                queryParam(request, "serverId"),
-                request.getHeaders().getFirst("X-StructEngine-Server-Id")
+        String secret = firstNonBlank(
+                request.getHeaders().getFirst("X-StructEngine-Secret"),
+                queryParam(request, "secret")
         );
-        if (serverId == null || !serverId.matches(SERVER_ID_PATTERN)) {
-            log.warn("拒绝游戏服连接：serverId 缺失或非法");
-            response.setStatusCode(HttpStatus.BAD_REQUEST);
+        if (!StringUtils.hasText(secret)) {
+            log.warn("拒绝游戏服连接：缺少 secret");
+            response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
 
-        String expected = props.getGameToken();
-        if (StringUtils.hasText(expected)) {
-            String token = firstNonBlank(
-                    request.getHeaders().getFirst("X-StructEngine-Token"),
-                    bearerToken(request)
-            );
-            if (!constantTimeEquals(expected, token)) {
-                log.warn("拒绝游戏服 {} 连接：令牌不匹配", serverId);
-                response.setStatusCode(HttpStatus.UNAUTHORIZED);
-                return false;
-            }
+        MinecraftServer server = serverService.findBySecret(secret).orElse(null);
+        if (server == null) {
+            log.warn("拒绝游戏服连接：secret 无效、服务器已禁用或已删除");
+            response.setStatusCode(HttpStatus.UNAUTHORIZED);
+            return false;
         }
 
-        attributes.put(ATTR_SERVER_ID, serverId);
+        attributes.put(ATTR_SERVER_ID, Long.toString(server.id()));
+        attributes.put(ATTR_SECRET_HASH, server.secretHash());
         return true;
     }
 
@@ -78,28 +71,6 @@ public class GameHandshakeInterceptor implements HandshakeInterceptor {
                 .build()
                 .getQueryParams()
                 .getFirst(name);
-    }
-
-    private static String bearerToken(ServerHttpRequest request) {
-        String authorization = request.getHeaders().getFirst("Authorization");
-        if (authorization == null) {
-            return null;
-        }
-        String prefix = "Bearer ";
-        if (!authorization.regionMatches(true, 0, prefix, 0, prefix.length())) {
-            return null;
-        }
-        return authorization.substring(prefix.length()).trim();
-    }
-
-    private static boolean constantTimeEquals(String expected, String actual) {
-        if (actual == null) {
-            return false;
-        }
-        return MessageDigest.isEqual(
-                expected.getBytes(StandardCharsets.UTF_8),
-                actual.getBytes(StandardCharsets.UTF_8)
-        );
     }
 
     private static String firstNonBlank(String... values) {

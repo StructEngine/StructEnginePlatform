@@ -7,7 +7,10 @@ import com.structengine.platform.account.AppUser;
 import com.structengine.platform.account.UserAccountRepository;
 import com.structengine.platform.game.ws.GameServerRegistry;
 import com.structengine.platform.id.SnowflakeIdGenerator;
+import com.structengine.platform.security.AuthPrincipal;
 import com.structengine.platform.security.JwtService;
+import com.structengine.platform.server.ServerCreated;
+import com.structengine.platform.server.ServerService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,7 +45,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "structengine.ai-api-url=http://localhost:1",
         "structengine.ai-api-key=test",
         "structengine.ai-model=test-model",
-        "structengine.game-token=secret-token",
         "structengine.jwt-secret=integration-test-secret-key-0123456789abcdef",
         "structengine.admin-initial-password=admin-test"
 })
@@ -84,35 +86,52 @@ class GameWebSocketIntegrationTest {
     @Autowired
     SnowflakeIdGenerator idGenerator;
 
+    @Autowired
+    ServerService serverService;
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
     void registersHelloPlayerListAndExposesHistory() throws Exception {
         assertEquals(Boolean.TRUE, environment.getProperty("spring.threads.virtual.enabled", Boolean.class));
 
-        PluginListener listener = new PluginListener(mapper);
+        long ownerId = idGenerator.nextId();
+        long now = System.currentTimeMillis();
+        userAccountRepository.insert(new AppUser(ownerId, "ServerOwner", "unused-hash",
+                "ACTIVE", 0, now, now, null));
+        AuthPrincipal owner = new AuthPrincipal(AccountType.USER, ownerId,
+                "ServerOwner", "USER", 0);
+        ServerCreated created = serverService.create(owner, "Integration",
+                "http://localhost:" + port);
+        String serverId = created.server().serverId();
+        String secret = created.secret();
+
+        PluginListener listener = new PluginListener(mapper, secret);
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
         WebSocket socket = http.newWebSocketBuilder()
-                .header("X-StructEngine-Token", "secret-token")
+                .header("X-StructEngine-Secret", secret)
                 .connectTimeout(Duration.ofSeconds(5))
-                .buildAsync(URI.create("ws://localhost:" + port + "/ws/game?serverId=it"), listener)
+                .buildAsync(URI.create("ws://localhost:" + port + "/ws/game"), listener)
                 .get(5, TimeUnit.SECONDS);
         listener.connected.get(5, TimeUnit.SECONDS);
         socket.sendText("""
-                {"action":"HELLO","protocolVersion":2,"serverId":"it","serverName":"Integration",
-                 "blueMapUrl":"http://localhost:8100/structengine-map.html","mapId":"world"}
-                """, true).join();
+                {"action":"HELLO","protocolVersion":3,"serverName":"Integration",
+                 "blueMapUrl":"http://localhost:8100/structengine-map.html","mapId":"world",
+                 "secret":"%s"}
+                """.formatted(secret), true).join();
         socket.sendText("""
-                {"action":"PLAYER_LIST","serverId":"it","full":true,"players":[
+                {"action":"PLAYER_LIST","full":true,"secret":"%s","players":[
                   {"uuid":"00000000-0000-0000-0000-000000000001","name":"Steve","world":"world",
                    "x":1.5,"y":64,"z":-2.5,"online":true}
                 ]}
-                """, true).join();
+                """.formatted(secret), true).join();
 
+        String expectedServerId = serverId;
         await(() -> gameServerRegistry.serverInfos().stream()
-                .anyMatch(info -> "it".equals(info.serverId())
+                .anyMatch(info -> expectedServerId.equals(info.serverId())
                         && "http://localhost:8100/structengine-map.html".equals(info.blueMapUrl())
                         && info.playerCount() == 1));
+        await(() -> "ONLINE".equals(serverService.info(Long.parseLong(serverId)).status()));
 
         HttpClient web = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5)).build();
@@ -136,8 +155,8 @@ class GameWebSocketIntegrationTest {
         assertTrue(servers.body().contains("\"name\":\"Steve\""), servers.body());
 
         HttpResponse<String> history = web.send(HttpRequest.newBuilder(
-                        URI.create("http://localhost:" + port
-                                + "/api/servers/it/history?playerUuid=00000000-0000-0000-0000-000000000001&playerName=Steve"))
+                        URI.create("http://localhost:" + port + "/api/servers/" + serverId
+                                + "/history?playerUuid=00000000-0000-0000-0000-000000000001&playerName=Steve"))
                         .header("Authorization", "Bearer " + token)
                         .GET().build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -145,6 +164,7 @@ class GameWebSocketIntegrationTest {
         assertTrue(history.body().contains("\"historyId\":\"h-1\""), history.body());
 
         socket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+        await(() -> "OFFLINE".equals(serverService.info(Long.parseLong(serverId)).status()));
     }
 
     @Test
@@ -196,26 +216,78 @@ class GameWebSocketIntegrationTest {
                         .header("Authorization", "Bearer " + userToken)
                         .GET().build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertEquals(403, servers.statusCode(), servers.body());
+        assertEquals(200, servers.statusCode(), servers.body());
+
+        HttpResponse<String> business = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/ai/chat"))
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"hi\"}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, business.statusCode(), business.body());
+
+        HttpResponse<String> created = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers"))
+                        .header("Authorization", "Bearer " + userToken)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"UserA Server\"}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, created.statusCode(), created.body());
+        JsonNode createdJson = mapper.readTree(created.body());
+        String serverId = createdJson.path("data").path("server").path("serverId").asText();
+        String secret = createdJson.path("data").path("secret").asText();
+        assertTrue(!serverId.isBlank() && !secret.isBlank(), created.body());
+        assertTrue(created.body().contains("\"status\":\"PENDING\""), created.body());
+
+        HttpResponse<String> ownDetail = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers/" + serverId))
+                        .header("Authorization", "Bearer " + userToken)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, ownDetail.statusCode(), ownDetail.body());
+        assertTrue(ownDetail.body().contains("\"serverName\":\"UserA Server\""), ownDetail.body());
+
+        long otherId = idGenerator.nextId();
+        userAccountRepository.insert(new AppUser(otherId, "UserB", "unused-hash",
+                "ACTIVE", 0, now, now, null));
+        String otherToken = jwtService.issue(AccountType.USER, otherId, "UserB", "USER", 0);
+        HttpResponse<String> forbidden = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers/" + serverId))
+                        .header("Authorization", "Bearer " + otherToken)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(404, forbidden.statusCode(), forbidden.body());
+
+        AdminAccount admin = adminAccountRepository.findByUsername("admin").orElseThrow();
+        String adminToken = jwtService.issue(AccountType.ADMIN, admin.id(), admin.username(),
+                "ADMIN", admin.tokenVersion());
+        HttpResponse<String> adminDetail = web.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/servers/" + serverId))
+                        .header("Authorization", "Bearer " + adminToken)
+                        .GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, adminDetail.statusCode(), adminDetail.body());
     }
 
     @Test
-    void rejectsHandshakeWithoutToken() {
+    void rejectsHandshakeWithoutSecret() {
         HttpClient client = HttpClient.newHttpClient();
         ExecutionException error = assertThrows(ExecutionException.class, () -> client.newWebSocketBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
-                .buildAsync(URI.create("ws://localhost:" + port + "/ws/game?serverId=bad"), new PluginListener(mapper))
+                .buildAsync(URI.create("ws://localhost:" + port + "/ws/game"), new PluginListener(mapper, "secret"))
                 .get(5, TimeUnit.SECONDS));
         assertTrue(error.getCause() != null);
     }
 
     @Test
-    void rejectsHandshakeWithInvalidServerId() {
+    void rejectsHandshakeWithInvalidSecret() {
         HttpClient client = HttpClient.newHttpClient();
         assertThrows(ExecutionException.class, () -> client.newWebSocketBuilder()
-                .header("X-StructEngine-Token", "secret-token")
+                .header("X-StructEngine-Secret", "wrong-secret")
                 .connectTimeout(Duration.ofSeconds(5))
-                .buildAsync(URI.create("ws://localhost:" + port + "/ws/game?serverId=bad%24id"), new PluginListener(mapper))
+                .buildAsync(URI.create("ws://localhost:" + port + "/ws/game"), new PluginListener(mapper, "wrong-secret"))
                 .get(5, TimeUnit.SECONDS));
     }
 
@@ -237,11 +309,13 @@ class GameWebSocketIntegrationTest {
     private static final class PluginListener implements WebSocket.Listener {
 
         private final ObjectMapper mapper;
+        private final String secret;
         private final StringBuilder textBuffer = new StringBuilder();
         final CompletableFuture<Void> connected = new CompletableFuture<>();
 
-        private PluginListener(ObjectMapper mapper) {
+        private PluginListener(ObjectMapper mapper, String secret) {
             this.mapper = mapper;
+            this.secret = secret;
         }
 
         @Override
@@ -263,12 +337,12 @@ class GameWebSocketIntegrationTest {
                     } else if ("HISTORY_REQUEST".equals(action)) {
                         String requestId = message.get("requestId").asText();
                         webSocket.sendText("""
-                                {"action":"HISTORY_RESPONSE","requestId":"%s","history":[
+                                {"action":"HISTORY_RESPONSE","requestId":"%s","secret":"%s","history":[
                                   {"historyId":"h-1","taskId":"t-1","modelName":"测试模型",
                                    "createdAt":1700000000000,"blockCount":42,
                                    "canRollback":true,"canRedo":false}
                                 ]}
-                                """.formatted(requestId), true);
+                                """.formatted(requestId, secret), true);
                     }
                 } catch (RuntimeException e) {
                     connected.completeExceptionally(e);

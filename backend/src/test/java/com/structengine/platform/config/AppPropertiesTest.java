@@ -14,7 +14,6 @@ class AppPropertiesTest {
         assertEquals(10, props.getMaxImageMb());
         assertEquals(8080, props.getServerPort());
         assertEquals(5, props.getGameRpcTimeoutSeconds());
-        assertEquals("", props.getGameToken());
         assertEquals("", props.getPublicBaseUrl());
     }
 

@@ -31,6 +31,11 @@
     (function () {
       'use strict';
       const frame = document.getElementById('map-frame');
+      const params = new URLSearchParams(window.location.search);
+      const requestedMapId = params.get('mapId');
+      if (requestedMapId) {
+        frame.src = 'index.html#' + encodeURIComponent(requestedMapId);
+      }
       const loading = document.getElementById('loading');
       const hint = document.getElementById('hint');
       let hooked = false;
