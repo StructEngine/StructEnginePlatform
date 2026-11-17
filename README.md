@@ -53,6 +53,7 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 | `STRUCTENGINE_ADMIN_INITIAL_PASSWORD` | 首次安装 admin 初始密码（6~16 位） | 无，首次必须配置 |
 | `STRUCTENGINE_SNOWFLAKE_WORKER_ID` | Snowflake workerId（0~1023） | `0` |
 | `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件回包的秒数 | `5` |
+| `STRUCTENGINE_TASK_TIMEOUT_SECONDS` | 构建任务多久无进度后标记失败（秒） | `600` |
 | `STRUCTENGINE_AI_BASE_URL` | OpenAI-compatible Base URL | `https://token.dcepstc.com/v1` |
 | `STRUCTENGINE_AI_API_KEY` | AI API Key | 空 |
 | `STRUCTENGINE_AI_MODEL` | AI 模型 ID | `cn:deepseek-v4.1-flash` |
@@ -224,11 +225,20 @@ curl -H "Authorization: Bearer $TOKEN" \
 | POST | `/api/servers/{id}/history/{historyId}/rollback` | 回滚 |
 | POST | `/api/servers/{id}/history/{historyId}/redo` | 恢复 |
 | GET | `/api/admin/models` | 管理员查看全部模型 |
+| GET | `/api/admin/audit` | 管理员查询审计日志 |
 | GET | `/models/{filename}` | 模型公开分发（Minecraft Server 下载） |
 
-除 `/models/**`、`/api/auth/captcha`、`/api/auth/register`、`/api/auth/login` 与游戏服 WebSocket 外，API 需要 JWT；`/api/admin/**` 与当前阶段业务接口要求 `ROLE_ADMIN`。
+除 `/models/**`、`/api/auth/captcha`、`/api/auth/register`、`/api/auth/login` 与游戏服 WebSocket 外，API 需要 JWT；`/api/admin/**` 要求 `ROLE_ADMIN`；服务器上下文业务接口要求服务器归属（管理员可操作全部）。
 
 > 旧 `/api/map/build` 与 Squaremap 页面已删除。
+
+## 加固项
+
+- 构建任务：超过 `STRUCTENGINE_TASK_TIMEOUT_SECONDS` 无进度自动标记 `FAILED`；Platform 重启后非终态任务统一 `ABORTED`，避免前端无限轮询。
+- 审计：服务器创建/改名/轮换 secret/禁用/删除、模型生成/删除、部署、回滚/恢复写入 `audit_log`，管理员可在“审计日志”页查询。
+- 登录/注册：按 IP + 用户名做内存限流（登录 10 次/分钟、注册 5 次/分钟）。
+- 安全响应头：`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`、CSP（允许 BlueMap iframe 与 data: 验证码）。
+- 前端拆包：服务器详情 tab 使用异步组件，Three.js 预览独立 chunk。
 
 ## WebSocket 协议 v3
 
@@ -268,6 +278,7 @@ Platform -> Minecraft Server: CONNECTED, QUERY_Y, BUILD, HISTORY_REQUEST,
   - `model_artifact`（模型产物与归属）
   - `build_task`
   - `chat_message`
+  - `audit_log`
 - 模型文件：`{data-dir}/models/{id}.json`
 - 历史快照仍由插件内存保存，Minecraft Server 重启后清空（与原有行为一致）。
 
@@ -283,6 +294,6 @@ npm run build
 ```
 
 测试包含：
-- 后端 104 项：Snowflake、JWT、验证码、认证/管理员用户、服务器归属/secret、WebSocket v3/玩家列表/历史 RPC、模型清洗与文件存储等；
+- 后端 108 项：Snowflake、JWT、验证码、认证/管理员用户、服务器归属/secret、WebSocket v3/玩家列表/历史 RPC、模型产物、任务超时、审计、模型清洗与文件存储等；
 - 前端 11 项：参考图 API、体素解析；
-- 真机 RCON 验收脚本仍使用旧 `/api/map/*`，待 Phase 4 更新为服务器上下文接口。
+- 真机 RCON 验收脚本已迁移到 `/api/servers/{id}/tasks/deploy`，需要 JWT 与已有模型 ID。

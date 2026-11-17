@@ -1,5 +1,6 @@
 package com.structengine.platform.game.web;
 
+import com.structengine.platform.audit.AuditService;
 import com.structengine.platform.common.ApiResponse;
 import com.structengine.platform.common.BusinessException;
 import com.structengine.platform.common.ErrorCode;
@@ -35,10 +36,13 @@ public class GameServerController {
 
     private final ServerService serverService;
     private final BaseUrlResolver baseUrlResolver;
+    private final AuditService auditService;
 
-    public GameServerController(ServerService serverService, BaseUrlResolver baseUrlResolver) {
+    public GameServerController(ServerService serverService, BaseUrlResolver baseUrlResolver,
+                                AuditService auditService) {
         this.serverService = serverService;
         this.baseUrlResolver = baseUrlResolver;
+        this.auditService = auditService;
     }
 
     @GetMapping
@@ -51,8 +55,11 @@ public class GameServerController {
     public ApiResponse<ServerCreated> create(@AuthenticationPrincipal AuthPrincipal principal,
                                              @Valid @RequestBody CreateServerRequest request,
                                              HttpServletRequest httpRequest) {
-        return ApiResponse.ok(serverService.create(principal, request.name(),
-                baseUrlResolver.resolve(httpRequest)));
+        ServerCreated created = serverService.create(principal, request.name(),
+                baseUrlResolver.resolve(httpRequest));
+        auditService.record(principal, "SERVER_CREATE", Long.parseLong(created.server().serverId()),
+                null, null, null, null, null, ip(httpRequest), "SUCCESS", request.name());
+        return ApiResponse.ok(created);
     }
 
     @GetMapping("/{serverId}")
@@ -64,8 +71,12 @@ public class GameServerController {
     @PutMapping("/{serverId}")
     public ApiResponse<GameServerInfo> rename(@AuthenticationPrincipal AuthPrincipal principal,
                                               @PathVariable String serverId,
-                                              @Valid @RequestBody UpdateServerRequest request) {
-        return ApiResponse.ok(serverService.rename(principal, parseId(serverId), request.name()));
+                                              @Valid @RequestBody UpdateServerRequest request,
+                                              HttpServletRequest httpRequest) {
+        GameServerInfo info = serverService.rename(principal, parseId(serverId), request.name());
+        auditService.record(principal, "SERVER_RENAME", parseId(serverId), null, null,
+                null, null, null, ip(httpRequest), "SUCCESS", request.name());
+        return ApiResponse.ok(info);
     }
 
     @PostMapping("/{serverId}/secret/rotate")
@@ -73,27 +84,49 @@ public class GameServerController {
             @AuthenticationPrincipal AuthPrincipal principal,
             @PathVariable String serverId,
             HttpServletRequest httpRequest) {
-        return ApiResponse.ok(serverService.rotateSecret(principal, parseId(serverId),
-                baseUrlResolver.resolve(httpRequest)));
+        ServerSecretRotated rotated = serverService.rotateSecret(principal, parseId(serverId),
+                baseUrlResolver.resolve(httpRequest));
+        auditService.record(principal, "SERVER_SECRET_ROTATE", parseId(serverId), null, null,
+                null, null, null, ip(httpRequest), "SUCCESS", null);
+        return ApiResponse.ok(rotated);
     }
 
     @PostMapping("/{serverId}/disable")
     public ApiResponse<GameServerInfo> disable(@AuthenticationPrincipal AuthPrincipal principal,
-                                               @PathVariable String serverId) {
-        return ApiResponse.ok(serverService.disable(principal, parseId(serverId)));
+                                               @PathVariable String serverId,
+                                               HttpServletRequest httpRequest) {
+        GameServerInfo info = serverService.disable(principal, parseId(serverId));
+        auditService.record(principal, "SERVER_DISABLE", parseId(serverId), null, null,
+                null, null, null, ip(httpRequest), "SUCCESS", null);
+        return ApiResponse.ok(info);
     }
 
     @PostMapping("/{serverId}/enable")
     public ApiResponse<GameServerInfo> enable(@AuthenticationPrincipal AuthPrincipal principal,
-                                              @PathVariable String serverId) {
-        return ApiResponse.ok(serverService.enable(principal, parseId(serverId)));
+                                              @PathVariable String serverId,
+                                              HttpServletRequest httpRequest) {
+        GameServerInfo info = serverService.enable(principal, parseId(serverId));
+        auditService.record(principal, "SERVER_ENABLE", parseId(serverId), null, null,
+                null, null, null, ip(httpRequest), "SUCCESS", null);
+        return ApiResponse.ok(info);
     }
 
     @DeleteMapping("/{serverId}")
     public ApiResponse<Void> delete(@AuthenticationPrincipal AuthPrincipal principal,
-                                    @PathVariable String serverId) {
+                                    @PathVariable String serverId,
+                                    HttpServletRequest httpRequest) {
         serverService.delete(principal, parseId(serverId));
+        auditService.record(principal, "SERVER_DELETE", parseId(serverId), null, null,
+                null, null, null, ip(httpRequest), "SUCCESS", null);
         return ApiResponse.ok(null);
+    }
+
+    private static String ip(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     private static long parseId(String value) {

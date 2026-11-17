@@ -45,6 +45,12 @@ const routes = [
     meta: { admin: true, title: '全部模型产物', subtitle: '管理员可查看与删除全部模型' },
   },
   {
+    path: '/admin/audit',
+    name: 'admin-audit',
+    component: () => import('../views/AdminAuditPage.vue'),
+    meta: { admin: true, title: '审计日志', subtitle: '服务器、模型、部署与回滚操作记录' },
+  },
+  {
     path: '/',
     redirect: '/servers',
   },

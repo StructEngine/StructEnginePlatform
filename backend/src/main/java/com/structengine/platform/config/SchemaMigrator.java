@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class SchemaMigrator implements ApplicationRunner {
 
-    private static final int CURRENT_VERSION = 3;
+    private static final int CURRENT_VERSION = 4;
 
     private final JdbcTemplate jdbc;
 
@@ -41,6 +41,9 @@ public class SchemaMigrator implements ApplicationRunner {
         }
         if (current < 3) {
             createArtifactTables();
+        }
+        if (current < 4) {
+            createAuditTable();
         }
         jdbc.execute("PRAGMA user_version = " + CURRENT_VERSION);
     }
@@ -154,6 +157,30 @@ public class SchemaMigrator implements ApplicationRunner {
             throw new IllegalStateException("旧表 " + table + " 非空，无法自动迁移到 v3；请先导出/备份数据");
         }
         jdbc.execute("DROP TABLE " + table);
+    }
+
+    private void createAuditTable() {
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                  id          INTEGER PRIMARY KEY,
+                  actor_type  TEXT    NOT NULL CHECK (actor_type IN ('ADMIN', 'USER', 'SYSTEM')),
+                  actor_id    INTEGER,
+                  actor_name  TEXT,
+                  action      TEXT    NOT NULL,
+                  server_id   INTEGER,
+                  model_id    INTEGER,
+                  task_id     INTEGER,
+                  x           INTEGER,
+                  y           INTEGER,
+                  z           INTEGER,
+                  ip          TEXT,
+                  result      TEXT    NOT NULL,
+                  detail      TEXT,
+                  created_at  INTEGER NOT NULL
+                )
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_audit_server ON audit_log(server_id, created_at DESC)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, created_at DESC)");
     }
 
     private void createAccountTables() {

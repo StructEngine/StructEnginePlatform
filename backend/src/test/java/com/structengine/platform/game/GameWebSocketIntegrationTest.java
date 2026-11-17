@@ -176,6 +176,9 @@ class GameWebSocketIntegrationTest {
                         .GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(200, captcha.statusCode(), captcha.body());
+        assertEquals("nosniff",
+                captcha.headers().firstValue("X-Content-Type-Options").orElse(""));
+        assertTrue(captcha.headers().firstValue("Content-Security-Policy").isPresent());
         assertTrue(captcha.body().contains("captchaId"), captcha.body());
         assertTrue(captcha.body().contains("data:image/png;base64,"), captcha.body());
 

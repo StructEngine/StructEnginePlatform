@@ -61,6 +61,22 @@ public class BuildTaskRepository {
                 """, status, placed, total, error, updatedAt, id);
     }
 
+    public int markStaleFailed(long cutoff, long updatedAt, String message) {
+        return jdbc.update("""
+                UPDATE build_task
+                   SET status = 'FAILED', error = ?, updated_at = ?
+                 WHERE status IN ('QUEUED', 'DOWNLOADING', 'BUILDING') AND updated_at < ?
+                """, message, updatedAt, cutoff);
+    }
+
+    public int markInterrupted(long updatedAt, String message) {
+        return jdbc.update("""
+                UPDATE build_task
+                   SET status = 'ABORTED', error = ?, updated_at = ?
+                 WHERE status IN ('QUEUED', 'DOWNLOADING', 'BUILDING')
+                """, message, updatedAt);
+    }
+
     public List<BuildTask> listByServer(long serverId, String playerUuid, int limit) {
         if (playerUuid == null || playerUuid.isBlank()) {
             return jdbc.query("""

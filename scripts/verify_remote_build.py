@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""StructEngine 远程构建真机验收脚本。
+"""StructEngine 远程构建真机验收脚本（Platform v2 / WS v3）。
 
 流程：
-  1. 检查 Platform 是否已连接目标游戏服；
-  2. 调用 POST /api/map/build 触发一次构建；
-  3. 下载并解析 Platform 生成的模型 JSON；
-  4. 通过 Minecraft RCON 逐方块执行 execute unless block，核对世界中
-     (x + dx, y + dy, z + dz) 是否真的变成了模型指定的方块。
+  1. 用管理员/服主 JWT 检查目标服务器已连接；
+  2. 调用服务器上下文部署接口，把指定模型产物部署到 (x, z)；
+  3. 下载 Platform 生成的部署模型 JSON；
+  4. 轮询任务状态，再用 RCON 逐方块核对世界实际方块。
 
-只依赖 Python 标准库，无需安装第三方包。
+只依赖 Python 标准库。JWT 可从浏览器 localStorage 的
+`structengine.token` 复制，或通过环境变量 STRUCTENGINE_ACCESS_TOKEN 传入。
 
 示例：
-  python3 scripts/verify_remote_build.py \
+  STRUCTENGINE_ACCESS_TOKEN=eyJ... python3 scripts/verify_remote_build.py \
     --platform http://127.0.0.1:8080 \
-    --server-id local-test \
+    --server-id 380996850351603712 \
+    --model-id 380996850351603713 \
     --x 1000 --z 1000 \
-    --player Steve --prompt "验收小屋" \
+    --player Steve \
     --rcon-host 127.0.0.1 --rcon-port 25575 --rcon-password change-me
 """
 
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import struct
 import sys
@@ -59,7 +61,6 @@ class RconClient:
 
     def command(self, command: str) -> str:
         request_id = self._send_packet(2, command)
-        # 验收命令输出很短，Minecraft 会以单包返回。
         for _ in range(8):
             response_id, response_type, body = self._read_packet()
             if response_id == request_id and response_type == 0:
@@ -98,9 +99,10 @@ class RconClient:
             pass
 
 
-def http_json(method: str, url: str, payload: dict | None = None, timeout: float = 30.0) -> dict:
+def http_json(method: str, url: str, token: str, payload: dict | None = None,
+              timeout: float = 30.0) -> dict:
     data = None
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
     if payload is not None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -145,29 +147,30 @@ def validate_model(model: list[list]) -> list[tuple[str, int, int, int]]:
     return blocks
 
 
-def choose_server(data: dict, requested: str | None) -> str:
-    servers = data.get("data") or []
-    if not isinstance(servers, list):
-        raise VerifyError(f"游戏服列表格式异常: {data!r}")
-    ids = [item.get("serverId") for item in servers if isinstance(item, dict) and item.get("serverId")]
-    if requested:
-        if requested not in ids:
-            raise VerifyError(f"游戏服 {requested} 未连接；当前在线: {ids}")
-        return requested
-    if len(ids) == 1:
-        return ids[0]
-    if not ids:
-        raise VerifyError("当前没有已连接的游戏服，请先启动插件并检查 STRUCTENGINE_WS_URL")
-    raise VerifyError(f"存在多个游戏服，请通过 --server-id 指定: {ids}")
+def wait_task(platform: str, token: str, server_id: str, task_id: str,
+              timeout: float) -> dict:
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        response = http_json("GET", f"{platform}/api/servers/{server_id}/tasks/{task_id}",
+                             token, timeout=10)
+        if response.get("code") != 200:
+            raise VerifyError(f"查询任务失败: {response}")
+        last = response["data"]
+        status = last.get("status")
+        if status in ("COMPLETED", "FAILED", "ABORTED"):
+            return last
+        time.sleep(1.0)
+    raise VerifyError(f"任务超时未完成，最后状态: {last}")
 
 
-def verify_blocks(rcon: RconClient, blocks: list[tuple[str, int, int, int]], origin: tuple[int, int, int],
-                  max_checks: int | None, success_text: str, failure_text: str) -> tuple[int, list[str]]:
+def verify_blocks(rcon: RconClient, blocks: list[tuple[str, int, int, int]],
+                  origin: tuple[int, int, int], max_checks: int | None,
+                  success_text: str, failure_text: str) -> tuple[int, list[str]]:
     x0, y0, z0 = origin
     checked = 0
     failures: list[str] = []
 
-    # 预检 RCON 命令通道；list 是各服务端都支持的无副作用命令。
     if not rcon.command("list"):
         raise VerifyError("RCON 命令通道异常：list 未返回任何内容")
 
@@ -194,96 +197,107 @@ def verify_blocks(rcon: RconClient, blocks: list[tuple[str, int, int, int]], ori
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="StructEngine 远程构建真机验收")
+    parser = argparse.ArgumentParser(description="StructEngine 远程构建真机验收（v2）")
     parser.add_argument("--platform", default="http://127.0.0.1:8080", help="Platform 基础地址")
-    parser.add_argument("--server-id", default=None, help="目标游戏服 ID；仅一个在线时可省略")
-    parser.add_argument("--x", type=int, required=True, help="构建原点 X")
-    parser.add_argument("--z", type=int, required=True, help="构建原点 Z")
+    parser.add_argument("--token", default=os.environ.get("STRUCTENGINE_ACCESS_TOKEN", ""),
+                        help="JWT；也可用 STRUCTENGINE_ACCESS_TOKEN 环境变量")
+    parser.add_argument("--server-id", required=True, help="服务器雪花 ID")
+    parser.add_argument("--model-id", required=True, help="模型产物雪花 ID")
+    parser.add_argument("--x", type=int, required=True, help="构建中心 X")
+    parser.add_argument("--z", type=int, required=True, help="构建中心 Z")
     parser.add_argument("--player", default="Steve", help="playerName")
-    parser.add_argument("--prompt", default="验收小屋", help="建筑提示词")
-    parser.add_argument("--expected-y", type=int, default=None, help="可选：断言插件回传的 Y")
+    parser.add_argument("--player-uuid", default="", help="可选 playerUuid")
+    parser.add_argument("--rotation", type=int, default=0, choices=[0, 90, 180, 270])
+    parser.add_argument("--expected-y", type=int, default=None, help="可选：断言部署原点 Y")
     parser.add_argument("--rcon-host", default="127.0.0.1")
     parser.add_argument("--rcon-port", type=int, default=25575)
     parser.add_argument("--rcon-password", default=None)
     parser.add_argument("--max-checks", type=int, default=None,
                         help="只核对前 N 个方块（默认全部核对）")
     parser.add_argument("--skip-rcon", action="store_true",
-                        help="只触发构建并打印预期坐标，不连接 RCON")
-    parser.add_argument("--timeout", type=float, default=30.0, help="等待构建接口的超时秒数")
-    parser.add_argument("--settle-seconds", type=float, default=3.0,
-                        help="收到 BUILD 后等待插件下载并分批放置的秒数")
+                        help="只触发部署并打印任务信息，不连接 RCON")
+    parser.add_argument("--timeout", type=float, default=120.0, help="等待任务完成的秒数")
+    parser.add_argument("--settle-seconds", type=float, default=2.0,
+                        help="任务完成后等待世界稳定的秒数")
     parser.add_argument("--success-text", default=DEFAULT_SUCCESS_TEXT,
                         help="execute if block 命中时 RCON 返回文本（默认 Test passed）")
     parser.add_argument("--failure-text", default=DEFAULT_FAILURE_TEXT,
                         help="execute if block 未命中时 RCON 返回文本（默认 Test failed）")
     args = parser.parse_args()
 
+    if not args.token:
+        raise VerifyError("缺少 JWT：请通过 --token 或 STRUCTENGINE_ACCESS_TOKEN 传入")
+
     platform = args.platform.rstrip("/")
-    print("[1/4] 检查游戏服连接...")
-    servers = http_json("GET", f"{platform}/api/map/servers")
-    server_id = choose_server(servers, args.server_id)
-    print(f"      已连接: {server_id}")
+    token = args.token
 
-    print("[2/4] 触发地图构建...")
+    print("[1/4] 检查服务器连接...")
+    detail = http_json("GET", f"{platform}/api/servers/{args.server_id}", token)
+    if detail.get("code") != 200:
+        raise VerifyError(f"查询服务器失败: {detail}")
+    server = detail["data"]
+    if not server.get("connected"):
+        raise VerifyError(f"服务器 {args.server_id} 当前未连接，请检查插件 secret 与 WS 会话")
+    print(f"      {server.get('serverName')} · {server.get('status')}")
+
+    print("[2/4] 触发模型部署...")
     started = time.time()
-    response = http_json("POST", f"{platform}/api/map/build", {
-        "serverId": server_id,
-        "x": args.x,
-        "z": args.z,
+    response = http_json("POST", f"{platform}/api/servers/{args.server_id}/tasks/deploy", token, {
+        "playerUuid": args.player_uuid,
         "playerName": args.player,
-        "prompt": args.prompt,
-    }, timeout=args.timeout)
+        "modelId": args.model_id,
+        "centerX": args.x,
+        "centerZ": args.z,
+        "rotation": args.rotation,
+    })
     if response.get("code") != 200:
-        raise VerifyError(f"构建接口失败: {response}")
-    result = response["data"]
-    x, y, z = result["x"], result["y"], result["z"]
-    task_id = result["taskId"]
-    model_url = result["modelUrl"]
+        raise VerifyError(f"部署接口失败: {response}")
+    task = response["data"]
+    task_id = task["id"]
+    origin = (int(task["originX"]), int(task["originY"]), int(task["originZ"]))
     print(f"      taskId={task_id}")
-    print(f"      原点=({x},{y},{z})，耗时 {time.time() - started:.2f}s")
-    print(f"      modelUrl={model_url}")
-    if args.expected_y is not None and y != args.expected_y:
-        raise VerifyError(f"Y 轴断言失败：期望 {args.expected_y}，实际 {y}")
+    print(f"      原点={origin}，方块数={task['total']}，耗时 {time.time() - started:.2f}s")
+    if args.expected_y is not None and origin[1] != args.expected_y:
+        raise VerifyError(f"Y 轴断言失败：期望 {args.expected_y}，实际 {origin[1]}")
 
-    print("[3/4] 下载并校验模型 JSON...")
+    print("[3/4] 等待任务完成并下载部署模型...")
+    final = wait_task(platform, token, args.server_id, task_id, args.timeout)
+    print(f"      状态={final.get('status')} 进度={final.get('placed')}/{final.get('total')}")
+    if final.get("status") != "COMPLETED":
+        raise VerifyError(f"任务未成功: {final.get('status')} {final.get('error') or ''}")
+    if args.settle_seconds > 0:
+        time.sleep(args.settle_seconds)
+
+    model_url = f"{platform}/models/{task_id}.json"
     model = fetch_model(model_url)
     blocks = validate_model(model)
+    print(f"      modelUrl={model_url}")
     print(f"      模型方块数: {len(blocks)}")
     print(f"      首方块: {blocks[0]}")
-    print(f"      末方块: {blocks[-1]}")
 
     if args.skip_rcon:
         print("[4/4] 已跳过 RCON 核对。")
-        print("验收结果: 构建已下发，模型文件可访问；未核对世界实际方块。")
+        print("验收结果: 部署完成，模型文件可访问；未核对世界实际方块。")
         return 0
 
     if not args.rcon_password:
-        raise VerifyError("未提供 --rcon-password；如需跳过世界核对请加 --skip-rcon")
+        raise VerifyError("缺少 --rcon-password；如只想触发部署请加 --skip-rcon")
 
-    if args.settle_seconds > 0:
-        print(f"      等待插件完成下载与分批放置 {args.settle_seconds:g}s...")
-        time.sleep(args.settle_seconds)
-
-    print("[4/4] 通过 RCON 逐方块核对世界...")
+    print("[4/4] RCON 逐方块核对...")
     rcon = RconClient(args.rcon_host, args.rcon_port, args.rcon_password)
     try:
-        checked, failures = verify_blocks(rcon, blocks, (x, y, z), args.max_checks,
-                                           args.success_text, args.failure_text)
+        checked, failures = verify_blocks(rcon, blocks, origin, args.max_checks,
+                                          args.success_text, args.failure_text)
     finally:
         rcon.close()
 
+    print(f"      已核对 {checked} 个方块，失败 {len(failures)} 个。")
     if failures:
-        print(f"验收失败: 核对 {checked} 个方块，{len(failures)} 处不匹配")
-        for failure in failures[:50]:
-            print("  - " + failure)
-        if len(failures) > 50:
-            print(f"  ... 其余 {len(failures) - 50} 处省略")
+        for failure in failures[:20]:
+            print("      " + failure)
+        print("验收结果: 失败")
         return 1
-
-    print(f"验收通过: 核对 {checked} 个方块，全部与模型一致")
-    print(f"  任务: {task_id}")
-    print(f"  原点: ({x},{y},{z})")
-    print(f"  模型: {model_url}")
+    print("验收结果: 通过")
     return 0
 
 
@@ -291,5 +305,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except VerifyError as error:
-        print(f"验收中止: {error}", file=sys.stderr)
+        print(f"验收失败: {error}", file=sys.stderr)
         sys.exit(2)

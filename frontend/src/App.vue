@@ -22,6 +22,7 @@ const navItems = computed(() => {
       { path: '/admin/users', label: '用户管理' },
       { path: '/servers', label: '服务器管理' },
       { path: '/admin/models', label: '全部模型' },
+      { path: '/admin/audit', label: '审计日志' },
     ]
   }
   return [{ path: '/servers', label: '我的服务器' }]

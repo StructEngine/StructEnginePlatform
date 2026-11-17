@@ -1,11 +1,11 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import BuildStudioPage from './BuildStudioPage.vue'
-import GeneratePage from './GeneratePage.vue'
-import ServerModelsPanel from '../components/ServerModelsPanel.vue'
-import ServerTasksPanel from '../components/ServerTasksPanel.vue'
+const BuildStudioPage = defineAsyncComponent(() => import('./BuildStudioPage.vue'))
+const GeneratePage = defineAsyncComponent(() => import('./GeneratePage.vue'))
+const ServerModelsPanel = defineAsyncComponent(() => import('../components/ServerModelsPanel.vue'))
+const ServerTasksPanel = defineAsyncComponent(() => import('../components/ServerTasksPanel.vue'))
 import {
   disableServer,
   enableServer,

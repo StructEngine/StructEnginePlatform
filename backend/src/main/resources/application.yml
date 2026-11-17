@@ -29,6 +29,8 @@ structengine:
   data-dir: ${STRUCTENGINE_DATA_DIR:./data}
   max-image-mb: ${STRUCTENGINE_MAX_IMAGE_MB:10}
   max-model-blocks: ${STRUCTENGINE_MAX_MODEL_BLOCKS:20000}
+  # 构建任务超时（秒），超时后自动标记 FAILED。
+  task-timeout-seconds: ${STRUCTENGINE_TASK_TIMEOUT_SECONDS:600}
   # JWT：至少 32 字节；生产必须通过环境变量覆盖。
   jwt-secret: ${STRUCTENGINE_JWT_SECRET:}
   jwt-ttl-hours: ${STRUCTENGINE_JWT_TTL_HOURS:24}

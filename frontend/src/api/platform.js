@@ -117,6 +117,17 @@ export function deleteServerModel(serverId, modelId) {
   })
 }
 
+export function listAdminAudit({ page = 1, size = 20, serverId = '', action = '' } = {}) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (serverId) {
+    params.set('serverId', serverId)
+  }
+  if (action) {
+    params.set('action', action)
+  }
+  return api(`/admin/audit?${params}`)
+}
+
 export function listAdminModels({ page = 1, size = 20, source = '' } = {}) {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
   if (source) {

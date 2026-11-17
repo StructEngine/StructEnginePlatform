@@ -52,6 +52,11 @@ public class AppProperties {
     /** 一次生成允许的最大方块数。 */
     private int maxModelBlocks = 20000;
 
+    /** 构建任务多久没有进度就标记失败（秒）。 */
+    @Min(60)
+    @Max(86400)
+    private int taskTimeoutSeconds = 600;
+
     public String getProjectRoot() {
         return projectRoot;
     }
@@ -138,6 +143,14 @@ public class AppProperties {
 
     public void setMaxModelBlocks(int maxModelBlocks) {
         this.maxModelBlocks = maxModelBlocks;
+    }
+
+    public int getTaskTimeoutSeconds() {
+        return taskTimeoutSeconds;
+    }
+
+    public void setTaskTimeoutSeconds(int taskTimeoutSeconds) {
+        this.taskTimeoutSeconds = taskTimeoutSeconds;
     }
 
     /**

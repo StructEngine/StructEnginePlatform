@@ -1,6 +1,7 @@
 package com.structengine.platform.game.web;
 
 import com.structengine.platform.ai.AiChatService;
+import com.structengine.platform.audit.AuditService;
 import com.structengine.platform.ai.ModelGenerationService;
 import com.structengine.platform.chat.ChatMessage;
 import com.structengine.platform.chat.ChatRecord;
@@ -61,6 +62,7 @@ public class ServerBusinessController {
     private final BuildTaskService taskService;
     private final HistoryRpcService historyRpcService;
     private final BaseUrlResolver baseUrlResolver;
+    private final AuditService auditService;
 
     public ServerBusinessController(ServerService serverService, AiChatService aiChatService,
                                     ChatRepository chatRepository,
@@ -71,7 +73,8 @@ public class ServerBusinessController {
                                     DeployService deployService,
                                     BuildTaskService taskService,
                                     HistoryRpcService historyRpcService,
-                                    BaseUrlResolver baseUrlResolver) {
+                                    BaseUrlResolver baseUrlResolver,
+                                    AuditService auditService) {
         this.serverService = serverService;
         this.aiChatService = aiChatService;
         this.chatRepository = chatRepository;
@@ -83,6 +86,7 @@ public class ServerBusinessController {
         this.taskService = taskService;
         this.historyRpcService = historyRpcService;
         this.baseUrlResolver = baseUrlResolver;
+        this.auditService = auditService;
     }
 
     @PostMapping("/ai/chat")
@@ -123,6 +127,8 @@ public class ServerBusinessController {
         MinecraftServer server = accessible(principal, serverId);
         ModelDraft draft = modelGenerationService.generate(server.ownerUserId(), server.id(),
                 request.prompt(), baseUrlResolver.resolve(httpRequest));
+        auditService.record(principal, "MODEL_GENERATE", server.id(), draft.artifact().id(), null,
+                null, null, null, ip(httpRequest), "SUCCESS", "MAP_AI");
         return ApiResponse.ok(toReply(draft));
     }
 
@@ -136,6 +142,8 @@ public class ServerBusinessController {
         MinecraftServer server = accessible(principal, serverId);
         ModelDraft draft = generateService.generate(server.ownerUserId(), server.id(),
                 images, description, baseUrlResolver.resolve(httpRequest));
+        auditService.record(principal, "MODEL_GENERATE", server.id(), draft.artifact().id(), null,
+                null, null, null, ip(httpRequest), "SUCCESS", "REFERENCE_IMAGE");
         return ApiResponse.ok(toReply(draft));
     }
 
@@ -153,9 +161,13 @@ public class ServerBusinessController {
     @DeleteMapping("/models/{modelId}")
     public ApiResponse<Void> deleteModel(@AuthenticationPrincipal AuthPrincipal principal,
                                          @PathVariable String serverId,
-                                         @PathVariable String modelId) {
+                                         @PathVariable String modelId,
+                                         HttpServletRequest httpRequest) {
         MinecraftServer server = accessible(principal, serverId);
-        modelService.softDelete(server.id(), parseId(modelId));
+        long parsedModelId = parseId(modelId);
+        modelService.softDelete(server.id(), parsedModelId);
+        auditService.record(principal, "MODEL_DELETE", server.id(), parsedModelId, null,
+                null, null, null, ip(httpRequest), "SUCCESS", null);
         return ApiResponse.ok(null);
     }
 
@@ -169,6 +181,9 @@ public class ServerBusinessController {
                 request.playerUuid(), request.playerName(), parseId(request.modelId()),
                 request.centerX(), request.centerZ(), request.rotation(),
                 baseUrlResolver.resolve(httpRequest));
+        auditService.record(principal, "BUILD_DEPLOY", server.id(), task.modelId(), task.id(),
+                task.centerX(), task.centerY(), task.centerZ(), ip(httpRequest), "SUCCESS",
+                "rotation=" + task.rotation());
         return ApiResponse.ok(toView(task));
     }
 
@@ -206,10 +221,13 @@ public class ServerBusinessController {
     public ApiResponse<HistoryAction> rollback(@AuthenticationPrincipal AuthPrincipal principal,
                                                @PathVariable String serverId,
                                                @PathVariable String historyId,
-                                               @Valid @RequestBody HistoryActionRequest request) {
+                                               @Valid @RequestBody HistoryActionRequest request,
+                                               HttpServletRequest httpRequest) {
         MinecraftServer server = accessible(principal, serverId);
         String requestId = historyRpcService.rollback(Long.toString(server.id()),
                 request.playerUuid(), request.playerName(), historyId);
+        auditService.record(principal, "BUILD_ROLLBACK", server.id(), null, null,
+                null, null, null, ip(httpRequest), "QUEUED", "historyId=" + historyId);
         return ApiResponse.ok(new HistoryAction(requestId));
     }
 
@@ -217,10 +235,13 @@ public class ServerBusinessController {
     public ApiResponse<HistoryAction> redo(@AuthenticationPrincipal AuthPrincipal principal,
                                            @PathVariable String serverId,
                                            @PathVariable String historyId,
-                                           @Valid @RequestBody HistoryActionRequest request) {
+                                           @Valid @RequestBody HistoryActionRequest request,
+                                           HttpServletRequest httpRequest) {
         MinecraftServer server = accessible(principal, serverId);
         String requestId = historyRpcService.redo(Long.toString(server.id()),
                 request.playerUuid(), request.playerName(), historyId);
+        auditService.record(principal, "BUILD_REDO", server.id(), null, null,
+                null, null, null, ip(httpRequest), "QUEUED", "historyId=" + historyId);
         return ApiResponse.ok(new HistoryAction(requestId));
     }
 
@@ -241,6 +262,14 @@ public class ServerBusinessController {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "sessionId 不能超过 64 个字符");
         }
         return value;
+    }
+
+    private static String ip(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     private static long parseId(String value) {
