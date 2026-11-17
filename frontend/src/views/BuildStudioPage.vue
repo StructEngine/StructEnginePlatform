@@ -1,28 +1,18 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import VoxelPreview from '../components/VoxelPreview.vue'
 import {
   ApiError,
-  authStatus,
-  chatHistory,
   deployModel,
   generateModel,
   getTask,
   listHistory,
   listServers,
-  login,
-  logout,
   redo,
   rollback,
   sendChat,
 } from '../api/platform'
-
-const authChecked = ref(false)
-const authenticated = ref(false)
-const password = ref('')
-const loggingIn = ref(false)
-const authError = ref('')
 
 const servers = ref([])
 const selectedServerId = ref('')
@@ -106,46 +96,6 @@ function errorMessage(error) {
   return error instanceof ApiError ? error.message : '请求失败'
 }
 
-async function checkAuth() {
-  authChecked.value = false
-  try {
-    const state = await authStatus()
-    authenticated.value = Boolean(state?.authenticated)
-  } catch (e) {
-    authenticated.value = false
-  } finally {
-    authChecked.value = true
-  }
-  if (authenticated.value) {
-    await loadServers()
-  }
-}
-
-async function handleLogin() {
-  if (loggingIn.value) return
-  loggingIn.value = true
-  authError.value = ''
-  try {
-    const state = await login(password.value)
-    authenticated.value = Boolean(state?.authenticated)
-    password.value = ''
-    await loadServers()
-  } catch (e) {
-    authError.value = errorMessage(e)
-  } finally {
-    loggingIn.value = false
-  }
-}
-
-async function handleLogout() {
-  try { await logout() } catch (e) { /* ignore */ }
-  authenticated.value = false
-  servers.value = []
-  selectedServerId.value = ''
-  model.value = null
-  history.value = []
-}
-
 async function loadServers() {
   try {
     servers.value = await listServers()
@@ -156,9 +106,6 @@ async function loadServers() {
       selectedServerId.value = servers.value[0].serverId
     }
   } catch (e) {
-    if (e instanceof ApiError && e.code === 401) {
-      authenticated.value = false
-    }
     ElMessage.error(errorMessage(e))
   }
 }
@@ -353,9 +300,9 @@ function formatTime(value) {
   return new Date(value).toLocaleString()
 }
 
-onMounted(async () => {
+onMounted(() => {
   window.addEventListener('message', handleWindowMessage)
-  await checkAuth()
+  loadServers()
 })
 
 onBeforeUnmount(() => {
@@ -366,19 +313,6 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="studio">
-    <div v-if="!authChecked" class="studio-loading">正在检查登录状态...</div>
-
-    <div v-else-if="!authenticated" class="login-shell">
-      <div class="login-card">
-        <h2>StructEngine 管理台</h2>
-        <p>请输入管理员密码</p>
-        <el-input v-model="password" type="password" show-password placeholder="管理员密码" @keyup.enter="handleLogin" />
-        <el-button type="primary" :loading="loggingIn" class="login-button" @click="handleLogin">登录</el-button>
-        <el-alert v-if="authError" :title="authError" type="error" show-icon :closable="false" />
-      </div>
-    </div>
-
-    <template v-else>
       <header class="studio-header">
         <div>
           <h2>AI 地图建造工作台</h2>
@@ -389,7 +323,6 @@ onBeforeUnmount(() => {
             <el-option v-for="server in servers" :key="server.serverId" :label="`${server.serverName} (${server.serverId})`" :value="server.serverId" />
           </el-select>
           <el-button @click="loadServers">刷新</el-button>
-          <el-button @click="handleLogout">退出</el-button>
         </div>
       </header>
 
@@ -506,18 +439,11 @@ onBeforeUnmount(() => {
           </section>
         </aside>
       </div>
-    </template>
   </section>
 </template>
 
 <style scoped>
 .studio { display: flex; flex-direction: column; gap: 16px; }
-.studio-loading { padding: 80px; text-align: center; color: var(--rc-text-dim); }
-.login-shell { min-height: 60vh; display: flex; align-items: center; justify-content: center; }
-.login-card { width: 340px; padding: 28px; border: 1px solid var(--rc-panel-border); border-radius: 14px; background: var(--rc-panel); display: flex; flex-direction: column; gap: 14px; }
-.login-card h2 { margin: 0; }
-.login-card p { margin: 0; color: var(--rc-text-dim); font-size: 13px; }
-.login-button { width: 100%; }
 .studio-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .studio-header h2 { margin: 0; font-size: 22px; }
 .studio-header p { margin: 8px 0 0; color: var(--rc-text-dim); font-size: 13px; }

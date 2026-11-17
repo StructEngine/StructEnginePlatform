@@ -1,112 +1,105 @@
+import { ApiError, request } from './http.js'
+
 const API_BASE = '/api'
 
-const FALLBACK_MESSAGES = {
-  400: '输入不合法',
-  401: '请先登录',
-  403: '没有权限',
-  404: '资源不存在',
-  500: '服务端处理失败',
-  503: '游戏服务器未连接',
-  504: '游戏服务器响应超时',
+function api(path, options) {
+  return request(`${API_BASE}${path}`, options)
 }
 
-export class ApiError extends Error {
-  constructor(message, code = 0) {
-    super(message)
-    this.name = 'ApiError'
-    this.code = code
-  }
-}
-
-async function request(path, options = {}) {
-  let response
-  try {
-    response = await fetch(`${API_BASE}${path}`, {
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-      ...options,
-    })
-  } catch (e) {
-    throw new ApiError('网络异常或服务不可用')
-  }
-  if (response.status === 401) {
-    throw new ApiError('请先登录', 401)
-  }
-  let payload
-  try {
-    payload = await response.json()
-  } catch (e) {
-    throw new ApiError('服务端返回格式异常')
-  }
-  if (payload && payload.code === 200) {
-    return payload.data
-  }
-  throw new ApiError(
-    (payload && payload.message) || FALLBACK_MESSAGES[payload && payload.code] || '请求失败',
-    payload ? payload.code : 0,
-  )
-}
-
-export function authStatus() {
-  return request('/auth/status')
-}
-
-export function login(password) {
-  return request('/auth/login', { method: 'POST', body: JSON.stringify({ password }) })
-}
-
-export function logout() {
-  return request('/auth/logout', { method: 'POST', body: '{}' })
-}
+export { ApiError }
 
 export function listServers() {
-  return request('/servers')
+  return api('/servers')
 }
 
 export function sendChat({ sessionId, message }) {
-  return request('/ai/chat', {
+  return api('/ai/chat', {
     method: 'POST',
     body: JSON.stringify({ sessionId, message }),
   })
 }
 
 export function chatHistory(sessionId) {
-  return request(`/ai/chat/${encodeURIComponent(sessionId)}`)
+  return api(`/ai/chat/${encodeURIComponent(sessionId)}`)
 }
 
 export function generateModel({ serverId, playerUuid, playerName, prompt }) {
-  return request('/models/generate', {
+  return api('/models/generate', {
     method: 'POST',
     body: JSON.stringify({ serverId, playerUuid, playerName, prompt }),
   })
 }
 
 export function deployModel({ serverId, playerUuid, playerName, modelId, centerX, centerZ, rotation }) {
-  return request('/tasks/deploy', {
+  return api('/tasks/deploy', {
     method: 'POST',
     body: JSON.stringify({ serverId, playerUuid, playerName, modelId, centerX, centerZ, rotation }),
   })
 }
 
 export function getTask(taskId) {
-  return request(`/tasks/${encodeURIComponent(taskId)}`)
+  return api(`/tasks/${encodeURIComponent(taskId)}`)
 }
 
 export function listHistory(serverId, playerUuid, playerName) {
   const params = new URLSearchParams({ playerUuid, playerName })
-  return request(`/servers/${encodeURIComponent(serverId)}/history?${params}`)
+  return api(`/servers/${encodeURIComponent(serverId)}/history?${params}`)
 }
 
 export function rollback(serverId, { playerUuid, playerName, historyId }) {
-  return request(`/servers/${encodeURIComponent(serverId)}/rollback`, {
+  return api(`/servers/${encodeURIComponent(serverId)}/rollback`, {
     method: 'POST',
     body: JSON.stringify({ playerUuid, playerName, historyId }),
   })
 }
 
 export function redo(serverId, { playerUuid, playerName, historyId }) {
-  return request(`/servers/${encodeURIComponent(serverId)}/redo`, {
+  return api(`/servers/${encodeURIComponent(serverId)}/redo`, {
     method: 'POST',
     body: JSON.stringify({ playerUuid, playerName, historyId }),
   })
+}
+
+export function me() {
+  return api('/auth/me')
+}
+
+export function changePassword({ oldPassword, newPassword }) {
+  return api('/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ oldPassword, newPassword }),
+  })
+}
+
+export function listAdminUsers({ page = 1, size = 20, keyword = '' } = {}) {
+  const params = new URLSearchParams({ page: String(page), size: String(size) })
+  if (keyword && keyword.trim()) {
+    params.set('keyword', keyword.trim())
+  }
+  return api(`/admin/users?${params}`)
+}
+
+export function createAdminUser({ username, password }) {
+  return api('/admin/users', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  })
+}
+
+export function updateAdminUser(userId, { username, status }) {
+  return api(`/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ username, status }),
+  })
+}
+
+export function resetAdminUserPassword(userId, password) {
+  return api(`/admin/users/${encodeURIComponent(userId)}/password`, {
+    method: 'PUT',
+    body: JSON.stringify({ password }),
+  })
+}
+
+export function deleteAdminUser(userId) {
+  return api(`/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' })
 }

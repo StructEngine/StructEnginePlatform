@@ -1,68 +1,94 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import GeneratePage from './views/GeneratePage.vue'
-import BuildStudioPage from './views/BuildStudioPage.vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuth } from './stores/auth'
 
-const route = ref('build')
+const route = useRoute()
+const router = useRouter()
+const auth = useAuth()
 
-const titles = {
-  build: {
-    title: 'StructEngine AI 地图建造',
-    subtitle: 'BlueMap 选点 · 玩家选择 · AI 模型生成 · 部署与回滚',
-  },
-  studio: {
-    title: 'StructEngine 参考图生成器',
-    subtitle: '上传 1~3 张参考图，三视图仅作建议，多模态 AI 推断生成 Minecraft 体素模型',
-  },
+const isAuthPage = computed(() => Boolean(route.meta.public))
+const showNav = computed(() => Boolean(auth.state.user) && !isAuthPage.value)
+const wide = computed(() => route.path === '/build')
+const title = computed(() => route.meta.title || 'StructEngine')
+const subtitle = computed(() => route.meta.subtitle || '')
+
+const navItems = computed(() => {
+  if (!auth.state.user) {
+    return []
+  }
+  if (auth.isAdmin.value) {
+    return [
+      { path: '/admin/users', label: '用户管理' },
+      { path: '/build', label: 'AI 地图建造' },
+      { path: '/studio', label: '参考图生成' },
+    ]
+  }
+  return [{ path: '/servers', label: '我的服务器' }]
+})
+
+function isActive(path) {
+  return route.path === path
 }
 
-const current = computed(() => titles[route.value] || titles.studio)
-
-function syncRoute() {
-  route.value = window.location.hash.startsWith('#/studio') ? 'studio' : 'build'
+function logout() {
+  auth.logout()
+  router.replace('/login')
 }
 
-function navigate(name) {
-  window.location.hash = name === 'studio' ? '#/studio' : '#/build'
+function handleUnauthorized() {
+  auth.logout()
+  router.replace('/login')
 }
 
 onMounted(() => {
-  syncRoute()
-  window.addEventListener('hashchange', syncRoute)
+  window.addEventListener('structengine:unauthorized', handleUnauthorized)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('hashchange', syncRoute)
+  window.removeEventListener('structengine:unauthorized', handleUnauthorized)
 })
 </script>
 
 <template>
   <div class="app-shell">
     <header class="app-header">
-      <h1 class="app-title">{{ current.title }}</h1>
-      <p class="app-subtitle">{{ current.subtitle }}</p>
-      <nav class="app-nav" aria-label="功能导航">
-        <button
-          type="button"
-          class="nav-item"
-          :class="{ 'is-active': route === 'build' }"
-          @click="navigate('build')"
-        >
-          AI 地图建造
-        </button>
-        <button
-          type="button"
-          class="nav-item"
-          :class="{ 'is-active': route === 'studio' }"
-          @click="navigate('studio')"
-        >
-          三视图建模
-        </button>
-      </nav>
+      <div class="app-header-inner">
+        <router-link to="/" class="app-brand">
+          <span class="app-brand-main">StructEngine</span>
+          <span class="app-brand-badge">Platform</span>
+        </router-link>
+
+        <nav v-if="showNav" class="app-nav" aria-label="功能导航">
+          <router-link
+            v-for="item in navItems"
+            :key="item.path"
+            :to="item.path"
+            class="nav-item"
+            :class="{ 'is-active': isActive(item.path) }"
+          >
+            {{ item.label }}
+          </router-link>
+        </nav>
+
+        <div v-if="auth.state.user && !isAuthPage" class="app-user">
+          <span class="app-user-name">{{ auth.state.user.username }}</span>
+          <span class="app-user-role">
+            {{ auth.state.user.role === 'ADMIN' ? '管理员' : '服主' }}
+          </span>
+          <router-link to="/change-password" class="app-user-link">改密</router-link>
+          <button type="button" class="app-logout" @click="logout">退出</button>
+        </div>
+      </div>
     </header>
-    <main class="app-main" :class="{ 'app-main-wide': route === 'build' }">
-      <BuildStudioPage v-if="route === 'build'" />
-      <GeneratePage v-else />
+
+    <section v-if="!isAuthPage" class="page-title">
+      <h1>{{ title }}</h1>
+      <p v-if="subtitle">{{ subtitle }}</p>
+    </section>
+
+    <main class="app-main" :class="{ 'app-main-wide': wide }">
+      <router-view />
     </main>
   </div>
 </template>
@@ -75,29 +101,49 @@ onBeforeUnmount(() => {
 }
 
 .app-header {
-  text-align: center;
-  padding: 44px 20px 4px;
+  border-bottom: 1px solid var(--rc-panel-border);
+  background: rgba(10, 15, 11, 0.72);
+  backdrop-filter: blur(8px);
 }
 
-.app-title {
-  margin: 0;
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 3px;
+.app-header-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  min-height: 62px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--rc-text);
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-.app-subtitle {
-  margin: 10px 0 0;
+.app-brand-main {
+  color: var(--el-color-primary);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.app-brand-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--rc-panel-border);
+  border-radius: 999px;
   color: var(--rc-text-dim);
-  font-size: 14px;
+  font-size: 11px;
   letter-spacing: 1px;
 }
 
 .app-nav {
-  display: inline-flex;
+  display: flex;
   gap: 4px;
-  margin-top: 22px;
   padding: 4px;
   border: 1px solid var(--rc-panel-border);
   border-radius: 999px;
@@ -105,14 +151,12 @@ onBeforeUnmount(() => {
 }
 
 .nav-item {
-  padding: 9px 18px;
-  border: 0;
+  padding: 7px 14px;
   border-radius: 999px;
-  background: transparent;
   color: var(--rc-text-dim);
   font-size: 13px;
-  letter-spacing: 1px;
-  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
   transition: color 0.18s ease, background 0.18s ease;
 }
 
@@ -125,15 +169,93 @@ onBeforeUnmount(() => {
   color: var(--el-color-primary);
 }
 
+.app-user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--rc-text-dim);
+}
+
+.app-user-name {
+  color: var(--rc-text);
+  font-weight: 600;
+}
+
+.app-user-role {
+  padding: 1px 7px;
+  border: 1px solid var(--rc-panel-border);
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+.app-user-link {
+  color: var(--rc-text-dim);
+}
+
+.app-logout {
+  padding: 4px 8px;
+  border: 1px solid var(--rc-panel-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--rc-text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.app-logout:hover {
+  color: var(--rc-text);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.page-title {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 36px 20px 0;
+}
+
+.page-title h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.page-title p {
+  margin: 8px 0 0;
+  color: var(--rc-text-dim);
+  font-size: 13px;
+}
+
 .app-main {
   flex: 1;
   width: 100%;
   max-width: 980px;
   margin: 0 auto;
-  padding: 28px 20px 64px;
+  padding: 24px 20px 64px;
 }
 
 .app-main-wide {
   max-width: 1280px;
+}
+
+@media (max-width: 760px) {
+  .app-header-inner {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+  }
+
+  .app-user {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .app-nav {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
 }
 </style>

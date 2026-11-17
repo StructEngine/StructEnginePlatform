@@ -1,6 +1,6 @@
 # StructEnginePlatform
 
-StructEngine 的云端控制面：管理多个 Minecraft 游戏服、BlueMap 地图选点、玩家选择、Spring AI 对话生成体素模型、参考图生成体素模型，以及模型部署/回滚/恢复。
+StructEngine 的云端控制面：多用户/JWT 管理、Minecraft 游戏服管理、BlueMap 地图选点、玩家选择、Spring AI 对话生成体素模型、参考图生成体素模型，以及模型部署/回滚/恢复。
 
 ## 架构
 
@@ -32,8 +32,8 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 
 ## 技术栈
 
-- 后端：Java 21、Spring Boot 4、Spring WebSocket、Spring AI、SQLite JDBC
-- 前端：Vue 3、Element Plus、Three.js 模型预览
+- 后端：Java 21、Spring Boot 4、Spring Security + JWT、Spring WebSocket、Spring AI、SQLite JDBC
+- 前端：Vue 3、Vue Router、Element Plus、Three.js 模型预览
 - 地图：BlueMap 5.16（Paper/Fabric/NeoForge 对应版本）
 - 存储：SQLite + 本地模型文件（`data/models`）
 - 游戏端：Fabric / Paper / NeoForge 插件
@@ -47,7 +47,10 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 | `STRUCTENGINE_LOCAL_CONFIG` | 本地敏感覆盖文件路径；默认 `./src/main/resources/application-local.yml` | 见左 |
 | `STRUCTENGINE_DATA_DIR` | 数据目录（含 models/images/structengine.db） | `./data` |
 | `STRUCTENGINE_PUBLIC_BASE_URL` | 模型文件对外基础地址；为空按请求 Host 推导 | 空 |
-| `STRUCTENGINE_ADMIN_PASSWORD` | 单管理员登录密码 | `change-me`（生产必须覆盖） |
+| `STRUCTENGINE_JWT_SECRET` | JWT HS256 密钥，至少 32 字节 | 无，必须配置 |
+| `STRUCTENGINE_JWT_TTL_HOURS` | JWT 有效期（小时） | `24` |
+| `STRUCTENGINE_ADMIN_INITIAL_PASSWORD` | 首次安装 admin 初始密码（6~16 位） | 无，首次必须配置 |
+| `STRUCTENGINE_SNOWFLAKE_WORKER_ID` | Snowflake workerId（0~1023） | `0` |
 | `STRUCTENGINE_GAME_TOKEN` | Minecraft Server WebSocket 握手令牌 | 空（生产必须设置） |
 | `STRUCTENGINE_GAME_RPC_TIMEOUT_SECONDS` | 等待插件回包的秒数 | `5` |
 | `STRUCTENGINE_AI_BASE_URL` | OpenAI-compatible Base URL | `https://token.dcepstc.com/v1` |
@@ -60,6 +63,14 @@ Minecraft Server 插件 ── 原有分批构建 / 回滚 / 恢复核心
 > 该文件已被 `.gitignore` 忽略，并且通过 Maven `resources` 排除，不会进入 Jar。
 >
 > 如果 API Key 曾出现在聊天/日志中，请立即在服务商侧轮换。
+
+## 登录与账号
+
+- 首次启动且 `admin_account` 为空时，平台用 `STRUCTENGINE_ADMIN_INITIAL_PASSWORD` 创建 `admin` 账号，并标记为首次登录需改密。
+- 普通用户可在登录页自助注册：用户名 4~16 位英文字母，密码 6~16 位，不要求邮箱。
+- 注册和登录都需要图形验证码；登录成功后返回 JWT，前端存 `localStorage`，请求通过 `Authorization: Bearer <token>` 携带。
+- 修改密码、管理员重置密码或禁用用户后，旧 JWT 立即失效。
+- 第一阶段（用户体系）已完成；服务器归属、每服 secret 与 WS v3 将在第二阶段接入，因此当前业务接口仍只允许 `ADMIN` 使用。
 
 ## BlueMap 5.16 安装
 
@@ -151,19 +162,20 @@ cp -r frontend/dist dist
 
 ## 管理台使用
 
-1. 打开 `http://192.168.1.201:8080/`，输入管理员密码。
-2. 选择游戏服。
-3. 在 BlueMap 地图点击选择建筑中心。
-4. 选择在线玩家，或切换到离线玩家输入名称/UUID。
-5. 在 AI 对话窗口讨论方案；填写模型描述。
-6. 点击“生成模型”，等待模型预览。
-7. 选择朝向（南/东/北/西/朝向玩家），点击“部署到 ...”。
-8. 在任务状态中查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`。
-9. 在构建历史中执行回滚/恢复。
+1. 打开 `http://192.168.1.201:8080/`，使用 `admin` + 初始密码登录；首次登录会要求改密。
+2. 管理员可在“用户管理”中创建/禁用/重置/删除普通用户；普通用户当前进入“我的服务器”占位页，服务器管理将在第二阶段开放。
+3. 管理员切换到“AI 地图建造”页，选择游戏服。
+4. 在 BlueMap 地图点击选择建筑中心。
+5. 选择在线玩家，或切换到离线玩家输入名称/UUID。
+6. 在 AI 对话窗口讨论方案；填写模型描述。
+7. 点击“生成模型”，等待模型预览。
+8. 选择朝向（南/东/北/西/朝向玩家），点击“部署到 ...”。
+9. 在任务状态中查看 `QUEUED → DOWNLOADING → BUILDING → COMPLETED`。
+10. 在构建历史中执行回滚/恢复。
 
 ### 参考图建模（三视图仅为建议）
 
-在顶部导航切换到“三视图建模”页：
+管理员在顶部导航切换到“参考图生成”页（普通用户暂不可用）：
 
 - 上传 **1~3 张参考图**即可。正视图、侧视图、俯视图只是推荐输入，不要求齐全。
 - 参考图不足三视图时也可以直接提交：后端会把图片与可选补充说明发送给多模态模型，由模型推断缺失的进深、侧面和屋顶，补全为完整建筑。
@@ -171,7 +183,8 @@ cp -r frontend/dist dist
 - 生成成功后返回体素模型 JSON 地址，可按 `/buildmodel <url>` 在游戏内构建。
 
 ```bash
-curl -b cookies.txt -F "images=@front.png" -F "images=@side.png" \
+curl -H "Authorization: Bearer $TOKEN" \
+  -F "images=@front.png" -F "images=@side.png" \
   -F "description=两层石砖小屋，红色木屋顶，正面开门" \
   http://192.168.1.201:8080/api/generate
 ```
@@ -180,9 +193,16 @@ curl -b cookies.txt -F "images=@front.png" -F "images=@side.png" \
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/auth/login` | 管理员登录，返回会话 Cookie |
-| GET | `/api/auth/status` | 登录状态 |
-| POST | `/api/auth/logout` | 退出 |
+| GET | `/api/auth/captcha` | 获取图形验证码 |
+| POST | `/api/auth/register` | 普通用户注册，返回 JWT |
+| POST | `/api/auth/login` | 管理员/用户统一登录，返回 JWT |
+| GET | `/api/auth/me` | 当前登录身份 |
+| POST | `/api/auth/password` | 修改自己的密码，返回新 JWT |
+| GET | `/api/admin/users` | 管理员查询用户 |
+| POST | `/api/admin/users` | 管理员创建用户 |
+| PUT | `/api/admin/users/{id}` | 管理员修改用户名/状态 |
+| PUT | `/api/admin/users/{id}/password` | 管理员重置用户密码 |
+| DELETE | `/api/admin/users/{id}` | 管理员删除用户 |
 | GET | `/api/servers` | 已连接游戏服、BlueMap URL、玩家列表 |
 | GET | `/api/servers/{serverId}/history` | 查询玩家构建历史 |
 | POST | `/api/servers/{serverId}/rollback` | 回滚指定历史 |
@@ -196,7 +216,7 @@ curl -b cookies.txt -F "images=@front.png" -F "images=@side.png" \
 | GET | `/api/tasks?serverId=&playerUuid=` | 玩家任务列表 |
 | GET | `/models/{filename}` | 模型公开分发（Minecraft Server 下载） |
 
-除 `/models/**`、`/api/auth/**` 与游戏服 WebSocket 外，API 需要管理员会话。
+除 `/models/**`、`/api/auth/captcha`、`/api/auth/register`、`/api/auth/login` 与游戏服 WebSocket 外，API 需要 JWT；`/api/admin/**` 与当前阶段业务接口要求 `ROLE_ADMIN`。
 
 > 旧 `/api/map/build` 与 Squaremap 页面已删除。
 
@@ -229,6 +249,8 @@ Platform -> Minecraft Server: QUERY_Y, BUILD, HISTORY_REQUEST, ROLLBACK, REDO, P
 ## 数据与持久化
 
 - SQLite：`{data-dir}/structengine.db`
+  - `admin_account`（超级管理员）
+  - `app_user`（Minecraft 服主）
   - `model_draft`
   - `build_task`
   - `chat_message`
@@ -247,6 +269,6 @@ npm run build
 ```
 
 测试包含：
-- WebSocket 握手/HELLO/玩家列表/历史 RPC 集成测试；
-- Spring AI 配置启动与真实上游调用（本地配置存在时）；
-- 模型生成/部署/回滚的 API 与真机 RCON 验收脚本。
+- 后端 93 项：Snowflake、JWT、验证码、认证/管理员用户、WebSocket/玩家列表/历史 RPC、模型清洗与文件存储等；
+- 前端 11 项：参考图 API、体素解析；
+- 真机 RCON 验收脚本仍使用旧 `/api/map/*`，Phase 2 会随服务器/部署接口调整。
